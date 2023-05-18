@@ -772,8 +772,73 @@ def paint_photometry(hid=0, i=0, seed=141):
     plt.tight_layout()
     plt.savefig('../plots/mock_photometry_{:d}.{:d}.png'.format(hid, i))
 
+def save_photometry(hid=0, full=False, verbose=True, seed=139):
+    """"""
+    if full:
+        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    else:
+        t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    hid = np.unique(t['haloID'])[hid]
+    ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
+    t = t[ind]
+    Nstream = len(t)
+    
+    for i in range(Nstream):
+        if verbose: print('{:d} / {:d}'.format(i, Nstream))
+        # load stream
+        if full:
+            stream = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+        else:
+            stream = pickle.load(open('../data/streams/halo.{:d}_stream.{:03d}.pkl'.format(hid, i), 'rb'))
+        N = np.size(stream.x)
+        
+        # read isochrone
+        age = np.around(t['t_form'][i], decimals=1)
+        feh = np.around(t['[Fe/H]'][i], decimals=1)
+        iso = read_isochrone(age=age*u.Gyr, feh=feh, ret=True)
+        
+        # interpolate isochrone
+        bbox = [np.min(iso['initial_mass']), np.max(iso['initial_mass'])]
+        order = 1
+        interp_g = InterpolatedUnivariateSpline(iso['initial_mass'], iso['LSST_g'], k=order, bbox=bbox)
+        interp_r = InterpolatedUnivariateSpline(iso['initial_mass'], iso['LSST_r'], k=order, bbox=bbox)
+        
+        # sample masses
+        masses = sample_kroupa(t['logMgc_at_birth'][i])
+        ind_alive = masses<bbox[1]
+        masses = masses[ind_alive]
+        
+        # subsample if necessary
+        np.random.seed(seed)
+        Nstar = np.size(masses)
+        if N<Nstar:
+            # model underdense > subsample masses
+            stream_masses = np.random.choice(masses, size=N, replace=False)
+        else:
+            # model overdense > subsample stream points
+            stream_masses = masses
+            
+            ind_ = np.arange(N, dtype=int)
+            ind_sub = np.random.choice(ind_, size=Nstar, replace=False)
+            stream = stream[ind_sub]
+        
+        # distances
+        ceq = stream.to_coord_frame(coord.ICRS())
+        cg = stream.to_coord_frame(coord.Galactic())
+        dist = ceq.distance
+        dm = 5*np.log10((dist.to(u.pc)).value)-5
+        
+        # photometry (no uncertainties)
+        r = interp_r(stream_masses) + dm
+        g = interp_g(stream_masses) + dm
+        
+        # output
+        dictout = dict(stream=cg, r=r, g=g, mass=stream_masses)
+        pickle.dump(dictout, open('../data/streams/phot_halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'wb'))
 
 # All streams
+
+def plot_survey()
 
 def plot_sky(hid=506151, test=True, colorby='mass'):
     """"""
