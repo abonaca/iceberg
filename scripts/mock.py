@@ -838,7 +838,45 @@ def save_photometry(hid=0, full=False, verbose=True, seed=139):
 
 # All streams
 
-def plot_survey()
+def plot_survey(glim=22, test=False, full=False, hid=0):
+    """Plot all streams in galactic sky coordinates down to a magnitude limit"""
+    
+    if full:
+        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    else:
+        t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    hid = np.unique(t['haloID'])[hid]
+    ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
+    t = t[ind]
+    
+    if test:
+        Nstream = 10
+    else:
+        Nstream = len(t)
+    
+    wangle = 180*u.deg
+    nskip = 2
+    
+    # setup plot
+    plt.close()
+    fig, ax = plt.subplots(1,1,figsize=(12,6), subplot_kw=dict(projection='mollweide'))
+    
+    for i in range(Nstream):
+        # load stream
+        pkl = pickle.load(open('../data/streams/phot_halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+        stream = pkl['stream']
+        ind = pkl['g']<glim
+        
+        im = plt.scatter(stream.l.wrap_at(wangle).rad[ind][::nskip], stream.b.rad[ind][::nskip], s=5, c=stream.distance.value[ind][::nskip], ec='none', alpha=0.2, cmap='magma', vmin=0, vmax=50)
+    
+    plt.colorbar(label='Distance [kpc]')
+    #plt.grid()
+    #plt.axis('off')
+    plt.xlabel('l [deg]')
+    plt.xlabel('b [deg]')
+    
+    plt.tight_layout()
+    plt.savefig('../plots/streams_sky_halo.{:d}_glim.{:.1f}.png'.format(hid, glim))
 
 def plot_sky(hid=506151, test=True, colorby='mass'):
     """"""
