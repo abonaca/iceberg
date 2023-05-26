@@ -21,7 +21,7 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 import pickle
 import time
 
-ham = gp.Hamiltonian(gp.MilkyWayPotential())
+ham_mw = gp.Hamiltonian(gp.MilkyWayPotential())
 coord.galactocentric_frame_defaults.set('v4.0')
 gc_frame = coord.Galactocentric()
 
@@ -412,11 +412,29 @@ def elz(hid=0):
     plt.tight_layout()
 
 
-def mock_stream(hid=0, test=True, graph=True, istart=0):
+def stream_number(hid=0, lowmass=True):
+    """Print stream number for each halo"""
+    
+    if lowmass:
+        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    else:
+        t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    print('Total number in 3 halos: {:d}'.format(len(t)))
+    
+    for hid in np.unique(t['haloID']):
+        ind = (t['haloID']==hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
+        print('Halo: {:d}, streams: {:d}, disrupted in the main halo: {:d}'.format(hid, np.sum(t['haloID']==hid), np.sum(ind)))
+    
+    
+
+def mock_stream(hid=0, test=True, graph=True, istart=0, f=0.3, lowmass=True):
     """Create a mock stream from a disrupted globular cluster"""
     
-    #t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
-    t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    if lowmass:
+        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    else:
+        t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    
     hid = np.unique(t['haloID'])[hid]
     ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
     t = t[ind]
@@ -424,16 +442,8 @@ def mock_stream(hid=0, test=True, graph=True, istart=0):
     c = coord.Galactocentric(x=-1*t['x']*u.kpc, y=t['y']*u.kpc, z=t['z']*u.kpc, v_x=-1*t['vx']*u.km/u.s, v_y=t['vy']*u.km/u.s, v_z=t['vz']*u.km/u.s)
     w0 = gd.PhaseSpacePosition(c.transform_to(gc_frame).cartesian)
     
-    orbit = ham.integrate_orbit(w0, dt=0.1*u.Myr, n_steps=0)
-    etot = orbit.energy()[0]
-    lz = orbit.angular_momentum()[2][0]
-    
-    ind = (np.abs(lz)>0.3*u.kpc**2*u.Myr**-1) & (etot>-0.21*u.kpc**2*u.Myr**-2)
-    t = t[ind]
-    
     t.pprint()
-    
-    print(np.max(t['logMgc_at_birth']), np.percentile(t['logMgc_at_birth'], [5,50,95]))
+    print(np.min(t['logMgc_at_birth']), np.max(t['logMgc_at_birth']))
     
     # starting time of dissolution (birth for in-situ, accretion time for accreted)
     # caveat: missing fluff of stars potentially dissolved before accretion time
@@ -447,17 +457,20 @@ def mock_stream(hid=0, test=True, graph=True, istart=0):
     c = coord.Galactocentric(x=-1*t['x']*u.kpc, y=t['y']*u.kpc, z=t['z']*u.kpc, v_x=-1*t['vx']*u.km/u.s, v_y=t['vy']*u.km/u.s, v_z=t['vz']*u.km/u.s)
     w0 = gd.PhaseSpacePosition(c.transform_to(gc_frame).cartesian)
     
-    # define gravitational potential
-    # cylsplinepotential not available as c potential, doesn't work for stream generation
-    # also don't have the agama decompositions for the 1e4Msun halos
+    # define gravitational potential -- just MilkyWayPotential without the central nucleus
+    # don't have the agama decompositions for the 1e4Msun halos
     #diskPot = gp.CylSplinePotential.from_file('../data/pot_disk_{:d}.pot'.format(hid), units=galactic)
-    haloPot = gp.NFWPotential(m=4.4e11*u.Msun, r_s=13*u.kpc, units=galactic)
-    #totalPot = gp.CompositePotential(component1=diskPot, component2=haloPot)
+    #diskPot = gp.CylSplinePotential.from_file('../data/pot_disk_450916.pot', units=galactic)
     
-    totalPot = haloPot
+    bulgePot = ham_mw.potential['bulge']
+    diskPot = ham_mw.potential['disk']
+    haloPot = ham_mw.potential['halo']
+    
+    totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
+    #totalPot = ham_mw.potential
     
     # integration set up
-    #ham = gp.Hamiltonian(totalPot)
+    ham = gp.Hamiltonian(totalPot)
     dt = -1*u.Myr
     
     # setup how stars get released from the progenitor
@@ -474,13 +487,14 @@ def mock_stream(hid=0, test=True, graph=True, istart=0):
         N = len(t)
     
     for i in range(istart,N):
+        print('mass', i, t['logMgc_at_birth'][i])
         # define number of steps to start of dissolution
         n_steps = int((t_start[i]*u.Gyr/np.abs(dt)).decompose())
         n_disrupted = int((t_end[i]*u.Gyr/np.abs(dt)).decompose())
         
         nsingle = int(np.abs((t_start[i]-t_end[i])/dt.to(u.Gyr).value))
         masses = sample_kroupa(t['logMgc_at_birth'][i])
-        f = 0.30
+        
         ntot = 0.5*f*np.size(masses)
         nr = int(ntot / nsingle)
         nr = max(1, nr)
@@ -491,8 +505,10 @@ def mock_stream(hid=0, test=True, graph=True, istart=0):
         print(2*np.sum(nrelease), n_steps)
         
         # create mock stream
+        print('starting')
         t1 = time.time()
         stream_, prog = gen.run(w0[i], prog_mass[i], dt=dt, n_steps=n_steps, n_particles=nrelease)
+        #stream_, prog = gen.run(w0[i], prog_mass[i], dt=dt, n_steps=n_steps)
         t2 = time.time()
         print(i, t2-t1)
         
@@ -836,9 +852,10 @@ def save_photometry(hid=0, full=False, verbose=True, seed=139):
         dictout = dict(stream=cg, r=r, g=g, mass=stream_masses)
         pickle.dump(dictout, open('../data/streams/phot_halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'wb'))
 
+
 # All streams
 
-def plot_survey(glim=22, test=False, full=False, hid=0):
+def plot_survey(glim=22, test=False, full=False, hid=0, halo=False):
     """Plot all streams in galactic sky coordinates down to a magnitude limit"""
     
     if full:
@@ -867,7 +884,10 @@ def plot_survey(glim=22, test=False, full=False, hid=0):
         stream = pkl['stream']
         ind = pkl['g']<glim
         
-        im = plt.scatter(stream.l.wrap_at(wangle).rad[ind][::nskip], stream.b.rad[ind][::nskip], s=5, c=stream.distance.value[ind][::nskip], ec='none', alpha=0.2, cmap='magma', vmin=0, vmax=50)
+        if halo & (t['rapo'][i]<5):
+            pass
+        else:
+            im = plt.scatter(stream.l.wrap_at(wangle).rad[ind][::nskip], stream.b.rad[ind][::nskip], s=5, c=stream.distance.value[ind][::nskip], ec='none', alpha=0.2, cmap='magma', vmin=0, vmax=40)
     
     plt.colorbar(label='Distance [kpc]')
     #plt.grid()
@@ -876,7 +896,7 @@ def plot_survey(glim=22, test=False, full=False, hid=0):
     plt.xlabel('b [deg]')
     
     plt.tight_layout()
-    plt.savefig('../plots/streams_sky_halo.{:d}_glim.{:.1f}.png'.format(hid, glim))
+    plt.savefig('../plots/streams_sky_halo.{:d}_glim.{:.1f}_halo.{:d}.png'.format(hid, glim, halo))
 
 def plot_sky(hid=506151, test=True, colorby='mass'):
     """"""
@@ -966,3 +986,33 @@ def plot_origin(hid=506151, k=0):
     plt.axis('off')
     plt.tight_layout()
     plt.savefig('../plots/streams_sky_halo.{:d}_leaf.{:d}.png'.format(hid, k), facecolor=fig.get_facecolor())
+
+
+# Halo streams
+
+def apocenters(full=False, hid=0):
+    """Plot histogram of apocenters"""
+    
+    if full:
+        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    else:
+        t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    hid = np.unique(t['haloID'])[hid]
+    ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
+    t = t[ind]
+    
+    # halo
+    ind_halo = t['rapo']>5
+    print(np.sum(ind_halo), len(t))
+    
+    plt.close()
+    plt.figure()
+    
+    plt.hist(t['rapo'], bins=np.linspace(0,20,100), alpha=0.3)
+    
+    plt.tight_layout()
+
+
+
+
+
