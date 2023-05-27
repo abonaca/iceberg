@@ -795,7 +795,7 @@ def read_isochrone(age=10.2*u.Gyr, feh=-2.5, graph=False, verbose=False, ret=Tru
     graph=True - plots interpolation into all LSST bands"""
     
     # read isochrone
-    iso_full = Table.read('/home/ana/data/isochrones/lsst/mist_gc_{:.1f}.cmd'.format(feh), format='ascii.commented_header', header_start=12)
+    iso_full = Table.read('../data/isochrones/lsst/mist_gc_{:.1f}.cmd'.format(feh), format='ascii.commented_header', header_start=12)
     ind_age = np.around(iso_full['isochrone_age_yr'], decimals=1)==age.to(u.yr).value
     iso = iso_full[ind_age]
     if verbose: iso.pprint()
