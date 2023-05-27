@@ -14,7 +14,7 @@ import gala.dynamics as gd
 from gala.dynamics import mockstream as ms
 from gala.units import galactic
 
-import agama
+#import agama
 
 from scipy.interpolate import InterpolatedUnivariateSpline
 
