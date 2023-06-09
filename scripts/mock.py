@@ -17,11 +17,20 @@ from gala.units import galactic
 #import agama
 
 from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy.optimize import minimize
 
+from functools import partial
 import pickle
 import time
 
 ham_mw = gp.Hamiltonian(gp.MilkyWayPotential())
+
+bulgePot = ham_mw.potential['bulge']
+diskPot = ham_mw.potential['disk']
+haloPot = ham_mw.potential['halo']
+totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
+ham = gp.Hamiltonian(totalPot)
+
 coord.galactocentric_frame_defaults.set('v4.0')
 gc_frame = coord.Galactocentric()
 
@@ -425,7 +434,7 @@ def stream_number(hid=0, lowmass=True):
         ind = (t['haloID']==hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
         print('Halo: {:d}, streams: {:d}, disrupted in the main halo: {:d}'.format(hid, np.sum(t['haloID']==hid), np.sum(ind)))
 
-def all_orbits(hid=0, lowmass=True):
+def all_orbits(hid=0, lowmass=True, test=False):
     """Calculate orbits of all disrupted globular clusters in a halo"""
     
     # read table
@@ -437,6 +446,11 @@ def all_orbits(hid=0, lowmass=True):
     hid = np.unique(t['haloID'])[hid]
     ind = (t['haloID']==hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
     t = t[ind]
+    
+    if test:
+        t = t[:10]
+    
+    N = len(t)
     
     # setup coordinates
     c = coord.Galactocentric(x=-1*t['x']*u.kpc, y=t['y']*u.kpc, z=t['z']*u.kpc, v_x=-1*t['vx']*u.km/u.s, v_y=t['vy']*u.km/u.s, v_z=t['vz']*u.km/u.s)
@@ -457,11 +471,24 @@ def all_orbits(hid=0, lowmass=True):
     
     # integrate orbits
     orbit = ham.integrate_orbit(w0, dt=dt, n_steps=nstep)
+    pickle.dump(orbit, open('../data/orbits_halo.{:d}.pkl'.format(hid), 'wb'))
+    
+    # orbit summary
     rperi = orbit.pericenter()
     rapo = orbit.apocenter()
+    etot = orbit.energy()[0].reshape(N,-1)[:,0]
+    lz = orbit.angular_momentum()[2][0].reshape(N,-1)[:,0]
     
-    outdict = dict(orbit=orbit, rperi=rperi, rapo=rapo)
-    pickle.dump(outdict, open('../data/orbits_halo.{:d}.pkl'.format(hid), 'wb'))
+    t['rperi_mw'] = rperi
+    t['rapo_mw'] = rapo
+    t['etot'] = etot
+    t['lz'] = lz
+    
+    # so we can save in fits format with no complaints
+    t.rename_column('[Fe/H]', 'FeH')
+    
+    t.pprint()
+    t.write('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
     
 def compare_orbits(hid=0, lowmass=True):
     """Compare orbital peri- and apocenters in the MW potential vs TNG"""
@@ -513,17 +540,79 @@ def compare_orbits(hid=0, lowmass=True):
 
 
 
-def mock_stream(hid=0, test=True, graph=True, istart=0, f=0.3, lowmass=True, verbose=False):
+def pot(R):
+    return ham.potential.energy([R, 0, 0]*u.kpc).value[0]
+
+pot_vec = np.vectorize(pot)
+
+def Lcirc(Etot, R):
+    return -R*((2*(Etot - pot_vec(R)))**0.5) 
+
+def maxLcirc(Etot):
+    optfunc = partial(Lcirc,Etot)
+    res = minimize(optfunc, np.array([0.1]), method='BFGS')
+    return np.abs(res.fun)
+
+def circularity(hid=523889, lowmass=True):
+    """"""
+    
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    
+    # calculate circularity
+    maxLcirc_vec = np.vectorize(maxLcirc)
+    maxLcirc_arr = maxLcirc_vec(np.linspace(-0.265, 0, 1000))
+    
+    t['lmax'] = (np.interp(t['etot'], np.linspace(-0.265, 0, 1000), maxLcirc_arr))
+    t['circLz'] = np.abs(t['lz']/t['lmax'])
+    
+    t.pprint()
+    t.write('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
+
+
+def get_halo(t):
+    """"""
+    
+    ind_apo = (t['rapo_mw']>5)
+    #ind_apo = (t['rapo']>5)
+    ind_peri = (t['rperi_mw']>5)
+    ind_disk = (t['circLz']>0.5) & (t['lz']<0)
+    
+    ind_halo = ~ind_disk & ind_apo & ind_peri
+    ind_halo = ~ind_disk & ind_apo
+    ind_halo = ind_apo
+    
+    return ind_halo
+
+def define_halo(hid=523889, lowmass=True):
+    """"""
+    
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    
+    ind_halo = get_halo(t)
+    print(np.sum(ind_halo), len(t))
+    
+    plt.close()
+    plt.figure()
+    
+    plt.plot(t['lz'], t['etot'], 'ko', mew=0, ms=2)
+    plt.plot(t['lz'][ind_halo], t['etot'][ind_halo], 'ro', mew=0, ms=2)
+    
+    plt.tight_layout()
+
+
+def mock_stream(hid=523889, test=True, graph=True, istart=0, f=0.3, lowmass=True, verbose=False, halo=True):
     """Create a mock stream from a disrupted globular cluster"""
     
-    if lowmass:
-        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
-    else:
-        t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    #if lowmass:
+        #t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    #else:
+        #t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
     
-    hid = np.unique(t['haloID'])[hid]
-    ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
-    t = t[ind]
+    #hid = np.unique(t['haloID'])[hid]
+    #ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
+    #t = t[ind]
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
     
     # starting time of dissolution (birth for in-situ, accretion time for accreted)
     # caveat: missing fluff of stars potentially dissolved before accretion time
@@ -560,13 +649,17 @@ def mock_stream(hid=0, test=True, graph=True, istart=0, f=0.3, lowmass=True, ver
     prog_mass = 10**t['logMgc_at_birth']*u.Msun
     gen = ms.MockStreamGenerator(df, ham)
     
+    if halo:
+        ind_all = np.arange(N, dtype=int)
+        ind_halo = get_halo(t)
+        to_run = ind_all[ind_halo]
+    else:
+        to_run = np.arange(istart, N, 1, dtype=int)
     
     if test:
-        N = istart+1
-    else:
-        N = len(t)
+        to_run = [to_run[0],]
     
-    for i in range(istart,N):
+    for i in to_run[:]:
         if verbose: print('gc {:d}, logM = {:.2f}'.format(i, t['logMgc_at_birth'][i]))
         
         # define number of steps to start of dissolution
@@ -577,7 +670,7 @@ def mock_stream(hid=0, test=True, graph=True, istart=0, f=0.3, lowmass=True, ver
         
         # read isochrone
         age = np.around(t['t_form'][i], decimals=1)
-        feh = np.around(t['[Fe/H]'][i], decimals=1)
+        feh = np.around(t['FeH'][i], decimals=1)
         iso = read_isochrone(age=age*u.Gyr, feh=feh, ret=True)
         
         # interpolate isochrone
@@ -1115,19 +1208,20 @@ def plot_origin(hid=506151, k=0):
 
 # Halo streams
 
-def apocenters(full=False, hid=0):
+def apocenters(hid=0, lowmass=True):
     """Plot histogram of apocenters"""
     
-    if full:
+    if lowmass:
         t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
     else:
         t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    
     hid = np.unique(t['haloID'])[hid]
     ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
     t = t[ind]
     
     # halo
-    ind_halo = t['rapo']>5
+    ind_halo = t['rperi']>5
     print(np.sum(ind_halo), len(t))
     
     plt.close()
@@ -1137,7 +1231,35 @@ def apocenters(full=False, hid=0):
     
     plt.tight_layout()
 
+def halo_sky(hid=523889, lowmass=True, glim=22, nskip=1):
+    """"""
+    
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    
+    ind_halo = get_halo(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_halo = get_halo(t)
+    to_run = ind_all[ind_halo]
 
+    plt.close()
+    fig = plt.figure(figsize=(12,7))
+    ax = fig.add_subplot(111, projection='aitoff', label='polar')
+    
+    for i in to_run[:]:
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+        cg = pkl['cg']
+        
+        ind_lim = pkl['g']<glim
+        
+        plt.scatter(cg.l.wrap_at(180*u.deg).radian[ind_lim][::nskip], cg.b.radian[ind_lim][::nskip], c=cg.distance.value[ind_lim][::nskip], norm=mpl.colors.LogNorm(vmin=5, vmax=70), s=2, alpha=0.1, linewidths=0)
+    
+    plt.xlabel('l [deg]')
+    plt.ylabel('b [deg]')
+    plt.title('g < {:g}'.format(glim), fontsize='medium')
+    
+    plt.tight_layout()
+    plt.savefig('../plots/sky_halostreams_g.{:.1f}_nskip.{:d}.png'.format(glim, nskip))
 
 
 
