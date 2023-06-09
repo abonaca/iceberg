@@ -600,7 +600,7 @@ def define_halo(hid=523889, lowmass=True):
     plt.tight_layout()
 
 
-def mock_stream(hid=523889, test=True, graph=True, istart=0, f=0.3, lowmass=True, verbose=False, halo=True):
+def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, verbose=False, halo=True, istart=0, nskip=1):
     """Create a mock stream from a disrupted globular cluster"""
     
     #if lowmass:
@@ -654,12 +654,12 @@ def mock_stream(hid=523889, test=True, graph=True, istart=0, f=0.3, lowmass=True
         ind_halo = get_halo(t)
         to_run = ind_all[ind_halo]
     else:
-        to_run = np.arange(istart, N, 1, dtype=int)
+        to_run = np.arange(i0, N, 1, dtype=int)
     
     if test:
         to_run = [to_run[0],]
     
-    for i in to_run[:]:
+    for i in to_run[istart::nskip]:
         if verbose: print('gc {:d}, logM = {:.2f}'.format(i, t['logMgc_at_birth'][i]))
         
         # define number of steps to start of dissolution
