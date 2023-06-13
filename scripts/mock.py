@@ -22,6 +22,7 @@ from scipy.optimize import minimize
 from functools import partial
 import pickle
 import time
+import healpy as hp
 
 ham_mw = gp.Hamiltonian(gp.MilkyWayPotential())
 
@@ -1261,5 +1262,67 @@ def halo_sky(hid=523889, lowmass=True, glim=22, nskip=1):
     plt.tight_layout()
     plt.savefig('../plots/sky_halostreams_g.{:.1f}_nskip.{:d}.png'.format(glim, nskip))
 
+
+# visualization
+
+def sb_single(hid=523889, lowmass=True, glim=27):
+    """"""
+    
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    
+    ind_halo = get_halo(t)
+    ind_all = np.arange(N, dtype=int)
+    to_run = ind_all[ind_halo]
+    
+    # Prepare the healpix pixels
+    level = 8
+    NSIDE = int(2**level)
+
+    flux_tot = np.zeros(hp.nside2npix(NSIDE))
+    da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcmin**2)
+    m0 = -48.60
+    
+    i = to_run[0]
+    for i in to_run[:]:
+        try:
+            pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+            cg = pkl['cg']
+            ind_lim = pkl['g']<glim
+            cg = cg[ind_lim]
+            
+            flux = 10**(-(pkl['g'] - m0)/2.5)
+            
+            ind_pix = hp.ang2pix(NSIDE, cg.l.deg, cg.b.deg, nest=False, lonlat=True)
+            
+            for e, ind in enumerate(ind_pix):
+                flux_tot[ind] += flux[e]
+        except FileNotFoundError:
+            pass
+    
+    s = -2.5*np.log10(flux_tot/da.to(u.arcsec**2).value) + m0
+    
+
+    # Plot the pixelization
+    cmap = 'Blues_r'
+    vmin = 32
+    vmax = 40
+    
+    plt.close()
+    fig = plt.figure(figsize=(10,5))
+    
+    #hp.mollview(s, nest=False, fig=fig, cmap=cmap, min=vmin, max=vmax, norm='log', cbar=False)
+    hp.mollview(s, nest=False, fig=fig, cmap=cmap, min=vmin, max=vmax, norm=None, cbar=False)
+    
+    plt.grid()
+    plt.title('g<{:g}'.format(glim), fontsize='medium')
+    
+    im = plt.gca().get_images()[0]
+    #plt.colorbar(mpl.cm.ScalarMappable(norm=mpl.colors.LogNorm(vmin=vmin, vmax=vmax), cmap=cmap), ax=plt.gca(), format=mpl.ticker.ScalarFormatter(), label='Surface brightness [mag arcsec$^2$]')
+    plt.colorbar(mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin, vmax=vmax), cmap=cmap), ax=plt.gca(), format=mpl.ticker.ScalarFormatter(), label='Surface brightness [mag arcsec$^2$]')
+    
+    plt.tight_layout()
+    #plt.savefig('../plots/allstreams_sb_g.{:.1f}_norm.log.png'.format(glim))
+    plt.savefig('../plots/allstreams_sb_g.{:.1f}_norm.lin_level.{:d}.pdf'.format(glim, level))
 
 
