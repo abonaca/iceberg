@@ -14,15 +14,15 @@ import gala.dynamics as gd
 from gala.dynamics import mockstream as ms
 from gala.units import galactic
 
-#import agama
-
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.optimize import minimize
 
 from functools import partial
 import pickle
 import time
+
 import healpy as hp
+from skimage import io, color
 
 ham_mw = gp.Hamiltonian(gp.MilkyWayPotential())
 
@@ -491,53 +491,57 @@ def all_orbits(hid=0, lowmass=True, test=False):
     t.pprint()
     t.write('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
     
-def compare_orbits(hid=0, lowmass=True):
+def compare_orbits(hid=523889, lowmass=True, fraction=True):
     """Compare orbital peri- and apocenters in the MW potential vs TNG"""
+    
     # read table
-    if lowmass:
-        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    
+    if fraction:
+        res_peri = 1 - t['rperi_mw']/t['rperi']
+        res_apo = 1 - t['rapo_mw']/t['rapo']
+        ylabels = ['1 - $R_p$ / $R_{p,0}$', '1 - $R_a$ / $R_{a,0}$']
+        ylims = [[-1,1], [-1,1]]
     else:
-        t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+        res_peri = t['rperi'] - t['rperi_mw']
+        res_apo = t['rapo'] - t['rapo_mw']
+        ylabels = ['$R_{p,0}$ - $R_p$', '$R_{a,0}$ - $R_a$']
+        ylims = [[-2,2], [-5,5]]
     
-    hid = np.unique(t['haloID'])[hid]
-    ind = (t['haloID']==hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
-    t = t[ind]
+    med_peri = np.median(res_peri)
+    std_peri = np.std(res_peri)
     
-    pkl = pickle.load(open('../data/orbits_halo.{:d}.pkl'.format(hid), 'rb'))
-    rperi = pkl['rperi'].value
-    rapo = pkl['rapo'].value
+    med_apo = np.median(res_apo)
+    std_apo = np.std(res_apo)
     
-    res_peri = 1 - rperi/t['rperi']
-    res_apo = 1 - rapo/t['rapo']
-    
-    print(np.median(res_peri), np.std(res_peri))
-    print(np.median(res_apo), np.std(res_apo))
     
     plt.close()
     fig, ax = plt.subplots(1,2,figsize=(15,5))
     
     plt.sca(ax[0])
     plt.axhline(0, color='r')
-    plt.plot(rperi, res_peri, 'ko', mew=0, ms=2)
+    plt.plot(t['rperi_mw'], res_peri, 'ko', mew=0, ms=2)
     
-    plt.ylim(-1,1)
+    plt.ylim(ylims[0])
     plt.gca().set_xscale('log')
+    plt.text(0.1, 0.9, 'Median: {:.2f}\nSTD: {:.2f}'.format(med_peri, std_peri), fontsize='small', transform=plt.gca().transAxes, va='top')
     
     plt.xlabel('$R_p$ [kpc]')
-    plt.ylabel('1 - $R_p$ / $R_{p,0}$')
+    plt.ylabel(ylabels[0])
     
     plt.sca(ax[1])
     plt.axhline(0, color='r')
-    plt.plot(rapo, res_apo, 'ko', mew=0, ms=2)
+    plt.plot(t['rapo_mw'], res_apo, 'ko', mew=0, ms=2)
     
-    plt.ylim(-1,1)
+    plt.ylim(ylims[1])
     plt.gca().set_xscale('log')
+    plt.text(0.1, 0.9, 'Median: {:.2f}\nSTD: {:.2f}'.format(med_apo, std_apo), fontsize='small', transform=plt.gca().transAxes, va='top')
     
     plt.xlabel('$R_a$ [kpc]')
-    plt.ylabel('1 - $R_a$ / $R_{a,0}$')
+    plt.ylabel(ylabels[1])
     
     plt.tight_layout()
-    plt.savefig('../plots/orbit_comparison_halo.{:d}.png'.format(hid))
+    plt.savefig('../plots/orbit_comparison_halo.{:d}_f.{:d}.png'.format(hid, fraction))
 
 
 
@@ -570,7 +574,7 @@ def circularity(hid=523889, lowmass=True):
     t.write('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
 
 
-def get_halo(t):
+def get_halo(t, full=True):
     """"""
     
     ind_apo = (t['rapo_mw']>5)
@@ -580,7 +584,11 @@ def get_halo(t):
     
     ind_halo = ~ind_disk & ind_apo & ind_peri
     ind_halo = ~ind_disk & ind_apo
-    ind_halo = ind_apo
+    
+    if full:
+        ind_halo = ind_apo
+    else:
+        ind_halo = ~ind_disk & ind_apo & ind_peri
     
     return ind_halo
 
@@ -632,9 +640,14 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
     #diskPot = gp.CylSplinePotential.from_file('../data/pot_disk_{:d}.pot'.format(hid), units=galactic)
     #diskPot = gp.CylSplinePotential.from_file('../data/pot_disk_450916.pot', units=galactic)
     
-    bulgePot = ham_mw.potential['bulge']
-    diskPot = ham_mw.potential['disk']
-    haloPot = ham_mw.potential['halo']
+    #bulgePot = ham_mw.potential['bulge']
+    #diskPot = ham_mw.potential['disk']
+    #haloPot = ham_mw.potential['halo']
+    
+    # TNG best-fit potential
+    bulgePot = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
+    diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.006*u.kpc, units=galactic)
+    haloPot = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
     
     totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
     #totalPot = ham_mw.potential
@@ -687,12 +700,25 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
             nchoose = int(f * np.size(masses))
             masses = np.random.choice(masses, size=nchoose, replace=False)
         
+        # sort masses (assuming lowest mass get kicked out first)
+        masses = np.sort(masses)
+        
+        # for accreted clusters, account for stars tidally stripped in the original host galaxy
+        if ~ind_insitu[i]:
+            # length of time spent in the progenitor galaxy
+            t_prog = t['t_form'][i] - t['t_accrete'][i]
+            # f_dyn = m_acc / m_init
+            f_dyn = 1 - 0.06*(t_prog)
+            #print(f_dyn)
+            #m_lost = m_init - m_acc
+            
+            mass_cumsum = np.cumsum(masses)
+            ind_mass = np.argmin(np.abs(mass_cumsum - (1-f_dyn)*prog_mass[i].value))
+            masses = masses[ind_mass:]
+        
         # make it an even number of stars
         if np.size(masses)%2:
             masses = masses[:-1]
-        
-        # sort masses (assuming lowest mass get kicked out first)
-        masses = np.sort(masses)
         
         nstar = np.size(masses)
         ntail = int(nstar/2)
@@ -1265,7 +1291,107 @@ def halo_sky(hid=523889, lowmass=True, glim=22, nskip=1):
 
 # visualization
 
-def sb_single(hid=523889, lowmass=True, glim=27):
+def save_healpix(hid=523889, lowmass=True, glim=27, level=8, full=True):
+    """Save total fluxes of stream stars in a healpix map"""
+    
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    
+    ind_all = np.arange(N, dtype=int)
+    ind_halo = get_halo(t, full=full)
+    to_run = ind_all[ind_halo]
+    
+    # Prepare the healpix pixels
+    NSIDE = int(2**level)
+
+    flux_tot = np.zeros(hp.nside2npix(NSIDE))
+    mask = np.zeros(hp.nside2npix(NSIDE), dtype=bool)
+    nstar = np.zeros(hp.nside2npix(NSIDE), dtype=int)
+    da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcmin**2)
+    m0 = -48.60
+    
+    i = to_run[0]
+    for i in to_run[:]:
+        try:
+            pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+            cg = pkl['cg']
+            ind_lim = pkl['g']<glim
+            
+            flux = 10**(-(pkl['g'][ind_lim] - m0)/2.5)
+            
+            ind_pix = hp.ang2pix(NSIDE, cg.l.deg[ind_lim], cg.b.deg[ind_lim], nest=False, lonlat=True)
+            
+            for e, ind in enumerate(ind_pix):
+                flux_tot[ind] += flux[e]
+                mask[ind] = True
+                nstar[ind] += 1
+        except FileNotFoundError:
+            pass
+    
+    flux_tot[~mask] = np.nan
+    
+    np.savez('../data/flux_full.{:d}_halo.{:d}.{:d}_l.{:d}_g.{:.1f}'.format(full, hid, lowmass, level, glim), flux=flux_tot, n=nstar)
+
+def flux_difference():
+    """Make sure deeper map has more stars and flux in every healpix"""
+    f1 = np.load('../data/flux_halo.523889.1_l.8_g.22.0.npz')
+    f2 = np.load('../data/flux_halo.523889.1_l.8_g.27.0.npz')
+    
+    df = f2['flux'] - f1['flux']
+    dn = f2['n'] - f1['n']
+    
+    print(np.min(dn), np.max(dn))
+    
+    print(np.nanmax(df), np.nanmin(df))
+    print(np.sum(df>0), np.sum(df<0))
+    
+    plt.close()
+    plt.figure()
+    
+    plt.hist(df, bins=np.logspace(-40,-22))
+    
+    plt.gca().set_xscale('log')
+    plt.tight_layout()
+
+def plot_sb(hid=523889, lowmass=True, glim=27, level=8, full=False):
+    """"""
+    
+    f = np.load('../data/flux_full.{:d}_halo.{:d}.{:d}_l.{:d}_g.{:.1f}.npz'.format(full, hid, lowmass, level, glim))
+    
+    # Prepare the healpix pixels
+    NSIDE = int(2**level)
+
+    #flux_tot = np.zeros(hp.nside2npix(NSIDE))
+    da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcmin**2)
+    m0 = -48.60
+    
+    s = -2.5*np.log10(f['flux']/da.to(u.arcsec**2).value) + m0
+
+    # Plot the pixelization
+    cmap = 'Blues'
+    vmin = 25
+    vmax = 35
+    
+    plt.close()
+    fig = plt.figure(figsize=(10,5))
+    
+    #hp.mollview(s, nest=False, fig=fig, cmap=cmap, min=vmin, max=vmax, norm='log', cbar=False)
+    hp.mollview(s, nest=False, fig=fig, cmap=cmap, min=vmin, max=vmax, norm=None, cbar=False, badcolor='k')
+    
+    plt.grid()
+    plt.title('g<{:g}'.format(glim), fontsize='medium')
+    
+    im = plt.gca().get_images()[0]
+    #plt.colorbar(mpl.cm.ScalarMappable(norm=mpl.colors.LogNorm(vmin=vmin, vmax=vmax), cmap=cmap), ax=plt.gca(), format=mpl.ticker.ScalarFormatter(), label='Surface brightness [mag arcsec$^2$]')
+    plt.colorbar(mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=vmin, vmax=vmax), cmap=cmap), ax=plt.gca(), format=mpl.ticker.ScalarFormatter(), label='Surface brightness [mag arcsec$^2$]')
+    #plt.gca().invert_yaxis()
+    
+    plt.tight_layout()
+    #plt.savefig('../plots/allstreams_sb_g.{:.1f}_norm.log.png'.format(glim))
+    plt.savefig('../plots/allstreams_sb_full.{:d}_g.{:.1f}_norm.lin_level.{:d}.png'.format(full, glim, level), dpi=400)
+
+
+def sb_single(hid=523889, lowmass=True, glim=27, level=8):
     """"""
     
     t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
@@ -1276,12 +1402,13 @@ def sb_single(hid=523889, lowmass=True, glim=27):
     to_run = ind_all[ind_halo]
     
     # Prepare the healpix pixels
-    level = 8
     NSIDE = int(2**level)
 
     flux_tot = np.zeros(hp.nside2npix(NSIDE))
     da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcmin**2)
     m0 = -48.60
+    
+    #print(np.sqrt(da), da)
     
     i = to_run[0]
     for i in to_run[:]:
@@ -1300,7 +1427,12 @@ def sb_single(hid=523889, lowmass=True, glim=27):
         except FileNotFoundError:
             pass
     
+    ind_nan = flux_tot==0
+    flux_tot[ind_nan] = np.nan
+    #print(np.min(flux_tot[~ind_nan]))
+    
     s = -2.5*np.log10(flux_tot/da.to(u.arcsec**2).value) + m0
+    print(s[:10])
     
 
     # Plot the pixelization
@@ -1312,7 +1444,7 @@ def sb_single(hid=523889, lowmass=True, glim=27):
     fig = plt.figure(figsize=(10,5))
     
     #hp.mollview(s, nest=False, fig=fig, cmap=cmap, min=vmin, max=vmax, norm='log', cbar=False)
-    hp.mollview(s, nest=False, fig=fig, cmap=cmap, min=vmin, max=vmax, norm=None, cbar=False)
+    hp.mollview(s, nest=False, fig=fig, cmap=cmap, min=vmin, max=vmax, norm=None, cbar=False, badcolor='w')
     
     plt.grid()
     plt.title('g<{:g}'.format(glim), fontsize='medium')
@@ -1323,6 +1455,397 @@ def sb_single(hid=523889, lowmass=True, glim=27):
     
     plt.tight_layout()
     #plt.savefig('../plots/allstreams_sb_g.{:.1f}_norm.log.png'.format(glim))
-    plt.savefig('../plots/allstreams_sb_g.{:.1f}_norm.lin_level.{:d}.pdf'.format(glim, level))
+    plt.savefig('../plots/allstreams_sb_g.{:.1f}_norm.lin_level.{:d}.png'.format(glim, level))
+
+def plot_stream(hid=523889, lowmass=True, glim=27, level=8, plot_map=True):
+    """Save total fluxes of stream stars in a healpix map"""
+    
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    
+    ind_halo = get_halo(t)
+    ind_all = np.arange(N, dtype=int)
+    to_run = ind_all[ind_halo]
+    
+    # Prepare the healpix pixels
+    NSIDE = int(2**level)
+
+    flux_tot = np.zeros(hp.nside2npix(NSIDE))
+    mask = np.zeros(hp.nside2npix(NSIDE), dtype=bool)
+    nstar = np.zeros(hp.nside2npix(NSIDE), dtype=int)
+    da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcmin**2)
+    m0 = -48.60
+    
+    i = to_run[1]
+    #for i in to_run[:]:
+    try:
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+        cg = pkl['cg']
+        ind_lim = pkl['g']<glim
+        #cg = cg[ind_lim]
+        print(np.sum(ind_lim))
+        print(np.sum(pkl['mass']))
+        print(10**t['logMgc_at_birth'][i])
+        
+        # read isochrone
+        age = np.around(t['t_form'][i], decimals=1)
+        feh = np.around(t['FeH'][i], decimals=1)
+        iso = read_isochrone(age=age*u.Gyr, feh=feh, ret=True)
+        
+        # interpolate isochrone
+        bbox = [np.min(iso['initial_mass']), np.max(iso['initial_mass'])]
+
+        # sample masses
+        masses = sample_kroupa(t['logMgc_at_birth'][i])
+        print(np.sum(masses))
+        ind_alive = masses<bbox[1]
+        masses = masses[ind_alive]
+        print(np.sum(masses))
+        
+        
+        flux = 10**(-(pkl['g'][ind_lim] - m0)/2.5)
+        
+        ind_pix = hp.ang2pix(NSIDE, cg.l.deg[ind_lim], cg.b.deg[ind_lim], nest=False, lonlat=True)
+        
+        for e, ind in enumerate(ind_pix):
+            flux_tot[ind] += flux[e]
+            mask[ind] = True
+            nstar[ind] += 1
+    except FileNotFoundError:
+        pass
+    
+    flux_tot[~mask] = np.nan
+    s = -2.5*np.log10(flux_tot/da.to(u.arcsec**2).value) + m0
+    
+    # Plot the pixelization
+    cmap = 'Blues'
+    vmin = 32
+    vmax = 40
+    
+    wangle = 180*u.deg
+    
+    plt.close()
+    fig = plt.figure(figsize=(10,5))
+    ax = fig.add_subplot(111, projection='mollweide')
+    
+    if plot_map:
+        hp.mollview(s, nest=False, fig=fig, cmap=cmap, norm=None, cbar=False, badcolor='k')
+        plt.plot(-cg.l.wrap_at(wangle).rad[ind_lim], cg.b.rad[ind_lim], 'ro', mew=0, ms=2, alpha=0.1)
+    else:
+        plt.plot(-cg.l.wrap_at(wangle).rad[ind_lim], cg.b.rad[ind_lim], 'ro', mew=0, ms=2, alpha=0.1)
+    
+    plt.tight_layout()
+    
+    
+    #plt.grid()
+    plt.title('')
+    plt.savefig('../plots/diag_stream.{:d}_map.{:d}.png'.format(i, plot_map))
+    #plt.title('g<{:g}'.format(glim), fontsize='medium')
+    
+    #np.savez('../data/flux_halo.{:d}.{:d}_l.{:d}_g.{:.1f}'.format(hid, lowmass, level, glim), flux=flux_tot, n=nstar)
 
 
+def plot_distance(hid=523889, lowmass=True, glim=27):
+    """"""
+    
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    
+    ind_halo = get_halo(t, full=False)
+    ind_all = np.arange(N, dtype=int)
+    to_run = ind_all[ind_halo]
+    print(np.size(to_run))
+    
+    plt.close()
+    fig = plt.figure(figsize=(12,6), facecolor='k')
+    ax = fig.add_subplot(111, projection='mollweide')
+    
+    wangle = 180*u.deg
+    dmin = 1*u.kpc
+    dmax = 50*u.kpc
+    
+    for i in to_run[:]:
+        try:
+            pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+            cg = pkl['cg']
+            ind_lim = pkl['g']<glim
+            
+            plt.scatter(cg.l.wrap_at(wangle).rad[ind_lim], cg.b.rad[ind_lim], c=cg.distance.value[ind_lim], cmap='plasma', vmin=dmin.value, vmax=dmax.value, s=0.1, alpha=0.1)
+            
+        except FileNotFoundError:
+            pass
+    
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig('../plots/halo_streams_distance_g.{:.1f}.png'.format(glim), dpi=250, facecolor='k')
+
+def plot_progenitors(hid=523889, lowmass=True):
+    """"""
+    
+    # globular clusters
+    t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_survive.txt', format='ascii.commented_header', delimiter=' ')
+    ind = t['haloID']==hid
+    t = t[ind]
+    
+    c = coord.Galactocentric(x=t['x']*u.kpc, y=t['y']*u.kpc, z=t['z']*u.kpc)
+    cg = c.transform_to(coord.Galactic())
+    
+    # streams
+    ts = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    ind_ = ts['haloID']==hid
+    ts = ts[ind_]
+    
+    cs = coord.Galactocentric(x=ts['x']*u.kpc, y=ts['y']*u.kpc, z=ts['z']*u.kpc)
+    cg_s = cs.transform_to(coord.Galactic())
+    
+    
+    wangle = 180*u.deg
+    dmin = 1*u.kpc
+    dmax = 50*u.kpc
+    
+    plt.close()
+    fig = plt.figure(figsize=(13,6))
+    fig.add_subplot(111, projection='mollweide')
+    
+    im = plt.scatter(cg.l.wrap_at(wangle).rad, cg.b.rad, c=cg.distance.value, vmin=dmin.value, vmax=dmax.value, s=5*(0.2*t['logMgc_at_birth'])**9, cmap='plasma', zorder=0, linewidth=0)
+    
+    #im_s = plt.scatter(cg_s.l.wrap_at(wangle).rad, cg_s.b.rad, c='w', s=10*(0.2*ts['logMgc_at_birth'])**9, zorder=1, linewidth=0)
+    #im_s = plt.scatter(cg_s.l.wrap_at(wangle).rad, cg_s.b.rad, c=cg_s.distance.value, vmin=dmin.value, vmax=dmax.value, s=5*(0.2*ts['logMgc_at_birth'])**9, cmap='plasma', alpha=0.5, zorder=2, linewidth=0)
+    
+    plt.colorbar(im, label='Distance [kpc]')
+    
+    plt.axis('off')
+    
+    plt.tight_layout()
+    
+    
+def save_healpix_distbins(hid=523889, lowmass=True, glim=27, level=8):
+    """Save total fluxes of stream stars in distance bins as healpix maps"""
+    
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    
+    ind_halo = get_halo(t, full=True)
+    ind_all = np.arange(N, dtype=int)
+    to_run = ind_all[ind_halo]
+    
+    # set up distance bins
+    Nbin = 12
+    #dbins = np.array([0,5,10,1000])*u.kpc
+    
+    dbins = np.linspace(1,15,Nbin-1)
+    # set lower and upper limits
+    dbins = np.insert(dbins, 0, 0)
+    dbins = np.insert(dbins, Nbin, 1000) * u.kpc
+    
+    print(dbins)
+    
+    # Prepare the healpix pixels
+    NSIDE = int(2**level)
+
+    flux_tot = np.zeros((hp.nside2npix(NSIDE), Nbin))
+    mask = np.zeros((hp.nside2npix(NSIDE), Nbin), dtype=bool)
+    nstar = np.zeros((hp.nside2npix(NSIDE), Nbin), dtype=int)
+    da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcmin**2)
+    m0 = -48.60
+    
+    i = to_run[0]
+    for i in to_run[:]:
+        try:
+            pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+            cg = pkl['cg']
+            ind_lim = pkl['g']<glim
+            
+            for j in range(Nbin):
+                ind_dist = (cg.distance>dbins[j]) & (cg.distance<=dbins[j+1])
+                ind_slice = ind_dist & ind_lim
+                
+                flux = 10**(-(pkl['g'][ind_slice] - m0)/2.5)
+                
+                ind_pix = hp.ang2pix(NSIDE, cg.l.deg[ind_slice], cg.b.deg[ind_slice], nest=False, lonlat=True)
+                
+                for e, ind in enumerate(ind_pix):
+                    flux_tot[ind][j] += flux[e]
+                    mask[ind][j] = True
+                    nstar[ind][j] += 1
+        except FileNotFoundError:
+            pass
+    
+    flux_tot[~mask] = np.nan
+    
+    np.savez('../data/flux_dist_halo.{:d}.{:d}_l.{:d}_g.{:.1f}'.format(hid, lowmass, level, glim), flux=flux_tot, n=nstar, dbins=dbins)
+
+def plot_sb_distbins(hid=523889, lowmass=True, glim=27, level=8, individual=False):
+    """"""
+    
+    f = np.load('../data/flux_dist_halo.{:d}.{:d}_l.{:d}_g.{:.1f}.npz'.format(hid, lowmass, level, glim))
+    dbins = f['dbins']
+    Nbin = len(dbins)-1
+    
+    # Prepare the healpix pixels
+    NSIDE = int(2**level)
+
+    #flux_tot = np.zeros(hp.nside2npix(NSIDE))
+    da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcmin**2)
+    m0 = -48.60
+    
+    s = -2.5*np.log10(f['flux']/da.to(u.arcsec**2).value) + m0
+
+    # Plot the pixelization
+    cmap = 'Greys'
+    vmin = 25
+    vmax = 35
+    
+    if individual:
+        for i in range(Nbin):
+            plt.close()
+            fig = plt.figure(facecolor='k')
+            #vmin = 20
+            #vmax = 30
+            hp.mollview(s[:,i], nest=False, fig=fig, cmap=cmap, min=vmin, max=vmax, norm=None, cbar=False, badcolor='k', bgcolor='k', hold=True, title='', xsize=6000)
+            plt.savefig('../plots/allstreams_sb_dbin.{:d}_g.{:.1f}_norm.lin_level.{:d}.png'.format(i, glim, level), dpi=600, facecolor=fig.get_facecolor())
+    else:
+        nrow = np.int(np.sqrt(Nbin))
+        ncol = Nbin//nrow
+        if Nbin>nrow*ncol:
+            nrow +=1
+        print(nrow, ncol)
+        da = 4
+        w = ncol * da
+        h = nrow * da * 0.5
+        
+        plt.close()
+        fig, ax = plt.subplots(nrow, ncol, figsize=(w,h), squeeze=False)
+        
+        for i in range(Nbin):
+            irow = i//ncol
+            icol = i%ncol
+            plt.sca(ax[irow][icol])
+            hp.mollview(s[:,i], nest=False, fig=fig, cmap=cmap, min=vmin, max=vmax, norm=None, cbar=False, badcolor='k', hold=True, title='')
+            plt.title('{:.0f} < d < {:.0f}'.format(dbins[i], dbins[i+1]), fontsize='small')
+    
+def test_tint(i=4):
+    """"""
+    Nbin = 12
+    image = io.imread('../plots/allstreams_sb_dbin.{:d}_g.27.0_norm.lin_level.8.png'.format(i))
+    
+    hsv = color.rgb2hsv(image[:,:,:3])
+    
+    tint_color = mpl.cm.magma((i+1)/Nbin)
+    tint_rgb = mpl.colors.to_rgb(tint_color)
+    tint_hsv = mpl.colors.rgb_to_hsv(tint_rgb)
+    
+    hsv[:, :, 0] = tint_hsv[0]
+    hsv[:, :, 1] = tint_hsv[1]
+    #hsv[:, :, 1] = 0.3
+    
+    #red_multiplier = np.array([1, 0, 0, 1])
+    #yellow_multiplier = np.array([1, 1, 0, 1])
+
+    plt.close()
+    fig, ax = plt.subplots(ncols=2, figsize=(12, 3), sharex=True, sharey=True)
+    
+    plt.sca(ax[0])
+    plt.imshow(image)
+    plt.axis('off')
+    
+    plt.sca(ax[1])
+    plt.imshow(color.hsv2rgb(hsv))
+    plt.axis('off')
+    
+    plt.show()
+    plt.tight_layout()
+    
+def combine(hid=523889, lowmass=True, glim=27, level=8):
+    """"""
+    f = np.load('../data/flux_dist_halo.{:d}.{:d}_l.{:d}_g.{:.1f}.npz'.format(hid, lowmass, level, glim))
+    dbins = f['dbins']
+    Nbin = len(dbins)-1
+    
+    nrow = np.int(np.sqrt(Nbin))
+    ncol = Nbin//nrow
+    da = 4
+    w = ncol * da
+    h = nrow * da * 0.5
+    
+    plt.close()
+    fig, ax = plt.subplots(nrow, ncol, figsize=(w,h), sharex=True, sharey=True)
+    
+    for i in range(Nbin):
+        image = io.imread('../plots/allstreams_sb_dbin.{:d}_g.{:.1f}_norm.lin_level.{:d}.png'.format(i, glim, level))
+        
+        hsv = color.rgb2hsv(image[:,:,:3])
+        
+        tint_color = mpl.cm.magma((i+1)/Nbin)
+        tint_rgb = mpl.colors.to_rgb(tint_color)
+        tint_hsv = mpl.colors.rgb_to_hsv(tint_rgb)
+        
+        hsv[:, :, 0] = tint_hsv[0]
+        hsv[:, :, 1] = tint_hsv[1]
+        
+        image_tinted = color.hsv2rgb(hsv)
+        
+        irow = i//ncol
+        icol = i%ncol
+        plt.sca(ax[irow][icol])
+        plt.imshow(image_tinted)
+        plt.axis('off')
+        
+    plt.tight_layout()
+    
+
+def tint(hid=523889, lowmass=True, glim=27, level=8):
+    """"""
+    f = np.load('../data/flux_dist_halo.{:d}.{:d}_l.{:d}_g.{:.1f}.npz'.format(hid, lowmass, level, glim))
+    dbins = f['dbins']
+    Nbin = len(dbins)-1
+    
+    for i in range(Nbin):
+        plt.close()
+        fig = plt.figure(facecolor='k')
+        
+        image = io.imread('../plots/allstreams_sb_dbin.{:d}_g.{:.1f}_norm.lin_level.{:d}.png'.format(i, glim, level))
+        
+        hsv = color.rgb2hsv(image[:,:,:3])
+        
+        tint_color = mpl.cm.magma((i+1)/Nbin)
+        tint_rgb = mpl.colors.to_rgb(tint_color)
+        tint_hsv = mpl.colors.rgb_to_hsv(tint_rgb)
+        
+        hsv[:, :, 0] = tint_hsv[0]
+        hsv[:, :, 1] = tint_hsv[1]
+        
+        image_tinted = color.hsv2rgb(hsv)
+        
+        #irow = i//ncol
+        #icol = i%ncol
+        #plt.sca(ax[irow][icol])
+        plt.imshow(image_tinted)
+        plt.axis('off')
+        
+        plt.tight_layout()
+        plt.savefig('../plots/allstreams_sb_tint_dbin.{:d}_g.{:.1f}_norm.lin_level.{:d}.png'.format(i, glim, level), dpi=600, facecolor=fig.get_facecolor())
+
+def blend(hid=523889, lowmass=True, glim=27, level=8):
+    """"""
+    f = np.load('../data/flux_dist_halo.{:d}.{:d}_l.{:d}_g.{:.1f}.npz'.format(hid, lowmass, level, glim))
+    dbins = f['dbins']
+    Nbin = len(dbins)-1
+    
+    img = []
+    for i in range(Nbin):
+        img += [io.imread('../plots/allstreams_sb_tint_dbin.{:d}_g.{:.1f}_norm.lin_level.{:d}.png'.format(i, glim, level))]
+    
+    img_blend = img[0]*0.
+    alpha = 0.0002
+    
+    for i in range(Nbin):
+        img_blend += alpha*img[i]*(i**1.5+0.2)
+    
+    plt.close()
+    fig = plt.figure(facecolor='k')
+    plt.imshow(img_blend)
+    
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig('../plots/allstreams_sb_blend_g.{:.1f}_norm.lin_level.{:d}.png'.format(glim, level), dpi=600, facecolor=fig.get_facecolor())
