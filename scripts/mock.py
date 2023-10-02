@@ -26,9 +26,18 @@ from skimage import io, color
 
 ham_mw = gp.Hamiltonian(gp.MilkyWayPotential())
 
-bulgePot = ham_mw.potential['bulge']
-diskPot = ham_mw.potential['disk']
-haloPot = ham_mw.potential['halo']
+#bulgePot = ham_mw.potential['bulge']
+#diskPot = ham_mw.potential['disk']
+#haloPot = ham_mw.potential['halo']
+#totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
+#ham = gp.Hamiltonian(totalPot)
+
+# TNG best-fit potential
+bulgePot = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
+diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.006*u.kpc, units=galactic)
+diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.28*u.kpc, units=galactic)
+haloPot = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
+
 totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
 ham = gp.Hamiltonian(totalPot)
 
@@ -457,13 +466,13 @@ def all_orbits(hid=0, lowmass=True, test=False):
     c = coord.Galactocentric(x=-1*t['x']*u.kpc, y=t['y']*u.kpc, z=t['z']*u.kpc, v_x=-1*t['vx']*u.km/u.s, v_y=t['vy']*u.km/u.s, v_z=t['vz']*u.km/u.s)
     w0 = gd.PhaseSpacePosition(c.transform_to(gc_frame).cartesian)
     
-    # setup potential
-    bulgePot = ham_mw.potential['bulge']
-    diskPot = ham_mw.potential['disk']
-    haloPot = ham_mw.potential['halo']
+    ## setup potential
+    #bulgePot = ham_mw.potential['bulge']
+    #diskPot = ham_mw.potential['disk']
+    #haloPot = ham_mw.potential['halo']
     
-    totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
-    ham = gp.Hamiltonian(totalPot)
+    #totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
+    #ham = gp.Hamiltonian(totalPot)
     
     # integration setup
     dt = -1*u.Myr
@@ -644,16 +653,17 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
     #diskPot = ham_mw.potential['disk']
     #haloPot = ham_mw.potential['halo']
     
-    # TNG best-fit potential
-    bulgePot = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
-    diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.006*u.kpc, units=galactic)
-    haloPot = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
+    ## TNG best-fit potential
+    #bulgePot = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
+    #diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.28*u.kpc, units=galactic)
+    #haloPot = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
     
-    totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
-    #totalPot = ham_mw.potential
+    #totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
+    ##totalPot = gp.CCompositePotential(component1=bulgePot, component2=haloPot)
+    ##totalPot = ham_mw.potential
     
-    # integration set up
-    ham = gp.Hamiltonian(totalPot)
+    ## integration set up
+    #ham = gp.Hamiltonian(totalPot)
     dt = -1*u.Myr
     
     # setup how stars get released from the progenitor
@@ -910,12 +920,12 @@ def needed_isochrones(hid=0):
     print(np.unique(age)*1e9)
     print(np.unique(feh))
 
-def read_isochrone(age=10.2*u.Gyr, feh=-2.5, graph=False, verbose=False, ret=True):
+def read_isochrone(age=10.2*u.Gyr, feh=-2.5, graph=False, verbose=False, ret=True, facility='lsst'):
     """Return isochrone of a given age and metallicity (extracted from a joint file of a given metallicity)
     graph=True - plots interpolation into all LSST bands"""
     
     # read isochrone
-    iso_full = Table.read('../data/isochrones/lsst/mist_gc_{:.1f}.cmd'.format(feh), format='ascii.commented_header', header_start=12)
+    iso_full = Table.read('../data/isochrones/{:s}/mist_gc_{:.1f}.cmd'.format(facility, feh), format='ascii.commented_header', header_start=12)
     ind_age = np.around(iso_full['isochrone_age_yr'], decimals=1)==age.to(u.yr).value
     iso = iso_full[ind_age]
     if verbose: iso.pprint()
