@@ -34,7 +34,8 @@ ham_mw = gp.Hamiltonian(gp.MilkyWayPotential())
 
 # TNG best-fit potential
 bulgePot = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
-diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.006*u.kpc, units=galactic)
+# issues integrating orbits in a disk potential with vanishing b
+#diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.006*u.kpc, units=galactic)
 diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.28*u.kpc, units=galactic)
 haloPot = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
 
@@ -644,26 +645,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
     c = coord.Galactocentric(x=-1*t['x']*u.kpc, y=t['y']*u.kpc, z=t['z']*u.kpc, v_x=-1*t['vx']*u.km/u.s, v_y=t['vy']*u.km/u.s, v_z=t['vz']*u.km/u.s)
     w0 = gd.PhaseSpacePosition(c.transform_to(gc_frame).cartesian)
     
-    # define gravitational potential -- just MilkyWayPotential without the central nucleus
-    # don't have the agama decompositions for the 1e4Msun halos
-    #diskPot = gp.CylSplinePotential.from_file('../data/pot_disk_{:d}.pot'.format(hid), units=galactic)
-    #diskPot = gp.CylSplinePotential.from_file('../data/pot_disk_450916.pot', units=galactic)
-    
-    #bulgePot = ham_mw.potential['bulge']
-    #diskPot = ham_mw.potential['disk']
-    #haloPot = ham_mw.potential['halo']
-    
-    ## TNG best-fit potential
-    #bulgePot = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
-    #diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.28*u.kpc, units=galactic)
-    #haloPot = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
-    
-    #totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
-    ##totalPot = gp.CCompositePotential(component1=bulgePot, component2=haloPot)
-    ##totalPot = ham_mw.potential
-    
     ## integration set up
-    #ham = gp.Hamiltonian(totalPot)
     dt = -1*u.Myr
     
     # setup how stars get released from the progenitor
@@ -684,106 +666,111 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
         to_run = [to_run[0],]
     
     for i in to_run[istart::nskip]:
-        if verbose: print('gc {:d}, logM = {:.2f}'.format(i, t['logMgc_at_birth'][i]))
-        
-        # define number of steps to start of dissolution
-        n_steps = int((t_start[i]*u.Gyr/np.abs(dt)).decompose())
-        n_disrupted = int((t_end[i]*u.Gyr/np.abs(dt)).decompose())
-        
-        nsingle = int(np.abs((t_start[i]-t_end[i])/dt.to(u.Gyr).value))
-        
-        # read isochrone
-        age = np.around(t['t_form'][i], decimals=1)
-        feh = np.around(t['FeH'][i], decimals=1)
-        iso = read_isochrone(age=age*u.Gyr, feh=feh, ret=True)
-        
-        # interpolate isochrone
-        bbox = [np.min(iso['initial_mass']), np.max(iso['initial_mass'])]
+        try:
+            if verbose: print('gc {:d}, logM = {:.2f}'.format(i, t['logMgc_at_birth'][i]))
+            
+            # define number of steps to start of dissolution
+            n_steps = int((t_start[i]*u.Gyr/np.abs(dt)).decompose())
+            n_disrupted = int((t_end[i]*u.Gyr/np.abs(dt)).decompose())
+            
+            nsingle = int(np.abs((t_start[i]-t_end[i])/dt.to(u.Gyr).value))
+            
+            # read isochrone
+            age = np.around(t['t_form'][i], decimals=1)
+            feh = np.around(t['FeH'][i], decimals=1)
+            iso_lsst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='lsst')
+            iso_jwst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='jwst')
+            
+            # interpolate isochrone
+            bbox = [np.min(iso_lsst['initial_mass']), np.max(iso_lsst['initial_mass'])]
 
-        # sample masses
-        masses = sample_kroupa(t['logMgc_at_birth'][i])
-        ind_alive = masses<bbox[1]
-        masses = masses[ind_alive]
-        
-        # subsample mass
-        if f<1:
-            nchoose = int(f * np.size(masses))
-            masses = np.random.choice(masses, size=nchoose, replace=False)
-        
-        # sort masses (assuming lowest mass get kicked out first)
-        masses = np.sort(masses)
-        
-        # for accreted clusters, account for stars tidally stripped in the original host galaxy
-        if ~ind_insitu[i]:
-            # length of time spent in the progenitor galaxy
-            t_prog = t['t_form'][i] - t['t_accrete'][i]
-            # f_dyn = m_acc / m_init
-            f_dyn = 1 - 0.06*(t_prog)
-            #print(f_dyn)
-            #m_lost = m_init - m_acc
+            # sample masses
+            masses = sample_kroupa(t['logMgc_at_birth'][i])
+            ind_alive = masses<bbox[1]
+            masses = masses[ind_alive]
             
-            mass_cumsum = np.cumsum(masses)
-            ind_mass = np.argmin(np.abs(mass_cumsum - (1-f_dyn)*prog_mass[i].value))
-            masses = masses[ind_mass:]
-        
-        # make it an even number of stars
-        if np.size(masses)%2:
-            masses = masses[:-1]
-        
-        nstar = np.size(masses)
-        ntail = int(nstar/2)
-        
-        # uniformly release the exact number of stars
-        navg = ntail//n_disrupted
-        nrelease = np.ones(n_disrupted, dtype=int) * navg
-        nextra = int(ntail - np.sum(nrelease))
-        nrelease[:nextra] += 1
-        
-        # add extra steps
-        nrelease = np.concatenate([nrelease, np.zeros(n_steps - n_disrupted + 1, dtype=int)])
-        if verbose: print('Ntail: {:d}, Nrelease: {:d}'.format(ntail, np.sum(nrelease)))
+            # subsample mass
+            if f<1:
+                nchoose = int(f * np.size(masses))
+                masses = np.random.choice(masses, size=nchoose, replace=False)
+            
+            # sort masses (assuming lowest mass get kicked out first)
+            masses = np.sort(masses)
+            
+            # for accreted clusters, account for stars tidally stripped in the original host galaxy
+            if ~ind_insitu[i]:
+                # length of time spent in the progenitor galaxy
+                t_prog = t['t_form'][i] - t['t_accrete'][i]
+                f_dyn = 1 - 0.06*(t_prog)
+                
+                mass_cumsum = np.cumsum(masses)
+                ind_mass = np.argmin(np.abs(mass_cumsum - (1-f_dyn)*prog_mass[i].value))
+                masses = masses[ind_mass:]
+            
+            # make it an even number of stars
+            if np.size(masses)%2:
+                masses = masses[:-1]
+            
+            nstar = np.size(masses)
+            ntail = int(nstar/2)
+            
+            # uniformly release the exact number of stars
+            navg = ntail//n_disrupted
+            nrelease = np.ones(n_disrupted, dtype=int) * navg
+            nextra = int(ntail - np.sum(nrelease))
+            nrelease[:nextra] += 1
+            
+            # add extra steps
+            nrelease = np.concatenate([nrelease, np.zeros(n_steps - n_disrupted + 1, dtype=int)])
+            if verbose: print('Ntail: {:d}, Nrelease: {:d}'.format(ntail, np.sum(nrelease)))
 
-        # create mock stream
-        t1 = time.time()
-        stream_, prog = gen.run(w0[i], prog_mass[i], dt=dt, n_steps=n_steps, n_particles=nrelease)
-        t2 = time.time()
-        if verbose: print('Runtime: {:g}'.format(t2-t1))
-        
-        ##################
-        # paint photometry
-        # get distance modulus
-        cg = stream_.to_coord_frame(coord.Galactic())
-        dm = 5*np.log10((cg.distance.to(u.pc)).value) - 5
-        
-        # interpolate isochrone
-        order = 1
-        interp_g = InterpolatedUnivariateSpline(iso['initial_mass'], iso['LSST_g'], k=order, bbox=bbox)
-        interp_r = InterpolatedUnivariateSpline(iso['initial_mass'], iso['LSST_r'], k=order, bbox=bbox)
-        
-        # photometry (no uncertainties)
-        r = interp_r(masses) + dm
-        g = interp_g(masses) + dm
-        
-        #############
-        # save stream
-        outdict = dict(cg=cg, mass=masses, g=g, r=r)
-        pickle.dump(outdict, open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'wb'))
-        
-        if graph:
-            # plot sky coordinates
-            ind = np.arange(np.size(cg.l))
+            # create mock stream
+            t1 = time.time()
+            stream_, prog = gen.run(w0[i], prog_mass[i], dt=dt, n_steps=n_steps, n_particles=nrelease)
+            t2 = time.time()
+            if verbose: print('Runtime: {:g}'.format(t2-t1))
             
-            plt.close()
-            plt.figure()
+            ##################
+            # paint photometry
+            # get distance modulus
+            cg = stream_.to_coord_frame(coord.Galactic())
+            dm = 5*np.log10((cg.distance.to(u.pc)).value) - 5
             
-            #plt.plot(cg.l, cg.b, 'k.')
-            plt.scatter(cg.l.wrap_at(180*u.deg), cg.b, c=ind, s=cg.distance.value**-1)
+            # interpolate isochrone
+            order = 1
+            interp_g = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_g'], k=order, bbox=bbox)
+            interp_r = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_r'], k=order, bbox=bbox)
+            interp_f200w = InterpolatedUnivariateSpline(iso_jwst['initial_mass'], iso_jwst['F200W'], k=order, bbox=bbox)
             
-            plt.xlabel('l [deg]')
-            plt.ylabel('b [deg]')
-            plt.gca().set_aspect('equal')
-            plt.tight_layout()
-            plt.savefig('../plots/streams/halo.{:d}_stream.{:04d}.png'.format(hid, i))
+            # photometry (no uncertainties)
+            r = interp_r(masses) + dm
+            g = interp_g(masses) + dm
+            f200w = interp_f200w(masses) + dm
+            
+            #############
+            # save stream
+            outdict = dict(cg=cg, mass=masses, g=g, r=r, f200w=f200w)
+            pickle.dump(outdict, open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'wb'))
+            
+            if graph:
+                # plot sky coordinates
+                ind = np.arange(np.size(cg.l))
+                
+                plt.close()
+                plt.figure()
+                
+                #plt.plot(cg.l, cg.b, 'k.')
+                plt.scatter(cg.l.wrap_at(180*u.deg), cg.b, c=ind, s=cg.distance.value**-1)
+                
+                plt.xlabel('l [deg]')
+                plt.ylabel('b [deg]')
+                plt.gca().set_aspect('equal')
+                plt.tight_layout()
+                plt.savefig('../plots/streams/halo.{:d}_stream.{:04d}.png'.format(hid, i))
+        except:
+            f = open('failed_ids', 'a')
+            f.write('{:d}\n'.format(i))
+            f.close()
 
 
 def nstar():
