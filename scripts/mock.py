@@ -584,6 +584,21 @@ def circularity(hid=523889, lowmass=True):
     t.write('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
 
 
+def host_massloss(hid=523889, lowmass=True):
+    """Estimate mass loss in the progenitor dwarf galaxy"""
+    
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    ind_insitu = t['t_accrete']==-1
+    
+    f_dyn = np.ones(len(t))
+    f_dyn[~ind_insitu] = 1 - 0.06*(t['t_form'][~ind_insitu] - t['t_accrete'][~ind_insitu])
+    
+    t['f_dyn'] = f_dyn
+    
+    t.pprint()
+    t.write('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
+
+
 def get_halo(t, full=True):
     """"""
     
@@ -619,7 +634,7 @@ def define_halo(hid=523889, lowmass=True):
     plt.tight_layout()
 
 
-def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, verbose=False, halo=True, istart=0, nskip=1):
+def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, verbose=False, halo=True, istart=0, nskip=1, remaining=False):
     """Create a mock stream from a disrupted globular cluster"""
     
     #if lowmass:
@@ -662,8 +677,15 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
     else:
         to_run = np.arange(i0, N, 1, dtype=int)
     
+    if remaining:
+        to_run = np.load('../data/to_run.npy')
+    
+        if test:
+            to_run = [to_run[i0],]
+    
     if test:
         to_run = [to_run[0],]
+    
     
     for i in to_run[istart::nskip]:
         try:
@@ -704,7 +726,8 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
                 f_dyn = 1 - 0.06*(t_prog)
                 
                 mass_cumsum = np.cumsum(masses)
-                ind_mass = np.argmin(np.abs(mass_cumsum - (1-f_dyn)*prog_mass[i].value))
+                ind_mass = np.argmin(np.abs(mass_cumsum - (1-f_dyn)*np.sum(masses)))
+
                 masses = masses[ind_mass:]
             
             # make it an even number of stars
@@ -767,10 +790,42 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
                 plt.gca().set_aspect('equal')
                 plt.tight_layout()
                 plt.savefig('../plots/streams/halo.{:d}_stream.{:04d}.png'.format(hid, i))
-        except:
-            f = open('failed_ids', 'a')
-            f.write('{:d}\n'.format(i))
-            f.close()
+        except Exception as error:
+            print('An exception occurred at stream {:d}: '.format(i), error)
+            fout_failed = open('failed_ids', 'a')
+            fout_failed.write('{:d}\n'.format(i))
+            fout_failed.close()
+
+import glob
+
+def get_remaining(hid=523889, lowmass=True, halo=True):
+    """"""
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    
+    if halo:
+        ind_halo = get_halo(t)
+        to_run = ind_all[ind_halo]
+    else:
+        to_run = ind_all
+    
+    fout = glob.glob('../data/streams/halo.{:d}*'.format(hid))
+    print(len(fout), len(to_run))
+    
+    ind_remaining = np.ones(N, dtype=bool)
+    ind_remaining[~ind_halo] = 0
+    
+    for f in fout:
+        i = int(f.split('.')[-2])
+        ind_remaining[i] = 0
+    
+    print(np.sum(ind_remaining), len(to_run)-len(fout))
+    print(ind_all[ind_remaining])
+
+    np.save('../data/to_run.npy', ind_all[ind_remaining])
+    
+    
 
 
 def nstar():
@@ -1284,6 +1339,29 @@ def halo_sky(hid=523889, lowmass=True, glim=22, nskip=1):
     
     plt.tight_layout()
     plt.savefig('../plots/sky_halostreams_g.{:.1f}_nskip.{:d}.png'.format(glim, nskip))
+
+def plot_single(hid=523889, i=0, mag_lim=27, band='r', nskip=1):
+    """"""
+    pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+    cg = pkl['cg']
+    
+    dm = 5*np.log10((cg.distance.to(u.pc)).value) - 5
+    dist = 12*u.Mpc
+    dm_eg = 5*np.log10((dist.to(u.pc)).value) - 5
+    
+    ind_lim = pkl['{:s}'.format(band)] - dm + dm_eg < mag_lim
+    print(np.sum(ind_lim), np.size(ind_lim))
+    
+    plt.close()
+    plt.figure()
+    
+    plt.plot(cg.l.wrap_at(180*u.deg).deg[ind_lim][::nskip], cg.b.deg[ind_lim][::nskip], 'ko')
+    
+    plt.xlabel('l [deg]')
+    plt.ylabel('b [deg]')
+    plt.gca().set_aspect('equal')
+    
+    plt.tight_layout()
 
 
 # visualization
