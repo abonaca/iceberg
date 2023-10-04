@@ -1,5 +1,5 @@
 
-def mock(Nskip=50, test=False):
+def mock(Nskip=50, remaining=False, test=False):
     """Bar disk scripts"""
     
     if test:
@@ -30,8 +30,8 @@ def mock(Nskip=50, test=False):
 ## /SBATCH -o slurm/slurm.%N.%j.out # STDOUT
 ## /SBATCH -e slurm/slurm.%N.%j.err # STDERR
 
-srun /home/abonaca/local/bin/python run_mocks.py {:d} {:d}
-""".format(job_name, Nskip, i)
+srun /home/abonaca/local/bin/python run_mocks.py {:d} {:d} {:d}
+""".format(job_name, Nskip, i, remaining)
         
         print(sbatch_text)
         print(sbatch_text, file=open('slurm/sbatch_{:s}'.format(job_name), 'w'))
