@@ -1363,6 +1363,121 @@ def plot_single(hid=523889, i=0, mag_lim=27, band='r', nskip=1):
     
     plt.tight_layout()
 
+def get_streaminess(hid=523889, lowmass=True, halo=True):
+    """"""
+    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    
+    if halo:
+        ind_halo = get_halo(t)
+        to_run = ind_all[ind_halo]
+    else:
+        to_run = ind_all
+    
+    fout = glob.glob('../data/streams/halo.{:d}*'.format(hid))
+    print(len(fout), len(to_run))
+    
+    ind_remaining = np.ones(N, dtype=bool)
+    ind_remaining[~ind_halo] = 0
+    
+    for f in fout:
+        i = int(f.split('.')[-2])
+        ind_remaining[i] = 0
+    
+    ind_done = ind_halo & ~ind_remaining
+    
+    t['detot'] = np.ones(N) * u.kpc**2*u.Myr**-2
+    t['etot'] = np.ones(N) * u.kpc**2*u.Myr**-2
+    t['dl'] = np.ones(N) * u.kpc**2*u.Myr**-1
+    t['l'] = np.ones(N) * u.kpc**2*u.Myr**-1
+    
+    keys = ['detot', 'etot', 'dl', 'l']
+    for k in keys:
+        t[k][~ind_done] = np.nan
+    
+    for i_ in range(np.sum(ind_done)):
+        i = ind_all[ind_done][i_]
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+        cg = pkl['cg']
+        cgal = cg.transform_to(coord.Galactocentric())
+        w = gd.PhaseSpacePosition(cgal)
+        
+        etot = np.abs(w.energy(ham))
+        l = np.linalg.norm(w.angular_momentum(), axis=0)
+        #l = w.angular_momentum()[2]
+        
+        t['detot'][i] = np.std(etot.value)
+        t['etot'][i] = np.median(etot.value)
+        t['dl'][i] = np.std(l.value)
+        t['l'][i] = np.median(l.value)
+    
+    t.write('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
+    
+    plt.close()
+    plt.figure()
+    
+    plt.plot(t['dl']/t['l'], t['detot']/t['etot'], 'ko', ms=4)
+    
+    plt.xlabel('$\sigma$|L| / |L|')
+    plt.ylabel('$\sigma$E$_{tot}$ / E$_{tot}$')
+    
+    plt.tight_layout()
+
+def plot_morphology(hid=523889, lowmass=True, halo=True, high=True):
+    """"""
+    
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l'])
+    
+    #t['l'] = np.abs(t['l'])
+    ecc = (t['rapo'] - t['rperi'])/(t['rapo'] + t['rperi'])
+    
+    plt.close()
+    plt.figure()
+    
+    #plt.plot(t['dl']/t['l'], t['detot']/t['etot'], 'ko', ms=4)
+    plt.scatter(t['dl']/t['l'], t['detot']/t['etot'], c=t['rperi'], vmin=0.1, vmax=10, cmap='Blues_r')
+    #plt.scatter(t['dl']/t['l'], t['detot']/t['etot'], c=t['rapo'], vmin=5, vmax=20)
+    
+    plt.gca().set_xscale('log')
+    plt.gca().set_yscale('log')
+    
+    plt.xlabel('$\sigma$|L| / |L|')
+    plt.ylabel('$\sigma$E$_{tot}$ / E$_{tot}$')
+    
+    ax0 = plt.gca()
+    
+    #to_plot = np.linspace(0, np.sum(ind_done)-1, 40, dtype=int)
+    to_plot = np.linspace(0, 500, 40, dtype=int)
+    
+    if high:
+        ind_sel = t['detot']/t['etot'] > 8e-3
+    else:
+        ind_sel = t['detot']/t['etot'] <= 8e-3
+    to_plot = ind_all[ind_sel & ind_done][:30]
+    
+    colors = mpl.cm.spring(np.linspace(0,1,len(to_plot)))
+    
+    for e, i in enumerate(to_plot):
+        #i = ind_all[ind_done][i_]
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+        cg = pkl['cg']
+        
+        plt.sca(ax0)
+        plt.plot(t['dl'][i]/t['l'][i], t['detot'][i]/t['etot'][i], '*', color=colors[e], ms=15)
+        plt.text(t['dl'][i]/t['l'][i], t['detot'][i]/t['etot'][i], '{:d}'.format(e), ha='center', va='center', fontsize=8)
+        
+        plt.axes([0+0.1*(e%10),0.95-0.05*(e//10),0.1,0.05], projection='mollweide')
+        plt.plot(cg.l.wrap_at(180*u.deg).radian[::100], cg.b.radian[::100], 'o', color=colors[e], ms=0.1, alpha=0.5)
+        plt.text(0,0,'{:d}'.format(e), ha='center', va='center', fontsize=8)
+        plt.axis('off')
+    
+    plt.tight_layout()
+    plt.savefig('../plots/streaminess_dedl_{:d}.png'.format(high))
+
 
 # visualization
 
@@ -1428,7 +1543,7 @@ def flux_difference():
     plt.gca().set_xscale('log')
     plt.tight_layout()
 
-def plot_sb(hid=523889, lowmass=True, glim=27, level=8, full=False):
+def plot_sb(hid=523889, lowmass=True, glim=27, level=8, full=True):
     """"""
     
     f = np.load('../data/flux_full.{:d}_halo.{:d}.{:d}_l.{:d}_g.{:.1f}.npz'.format(full, hid, lowmass, level, glim))
