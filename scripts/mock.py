@@ -1424,23 +1424,24 @@ def get_streaminess(hid=523889, lowmass=True, halo=True):
     
     plt.tight_layout()
 
-def plot_morphology(hid=523889, lowmass=True, halo=True, high=True):
+def plot_morphology(hid=523889, lowmass=True, halo=True, Nplot=100):
     """"""
     
     t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
     N = len(t)
     ind_all = np.arange(N, dtype=int)
-    ind_done = np.isfinite(t['l'])
+    ind_done = np.isfinite(t['l']) & (t['dl']/t['l']>1e-2)
     
-    #t['l'] = np.abs(t['l'])
-    ecc = (t['rapo'] - t['rperi'])/(t['rapo'] + t['rperi'])
+    to_plot = ind_all[ind_done]
+    np.random.seed(381)
+    to_plot = np.random.choice(to_plot, size=Nplot, replace=False)
+    
+    t = t[to_plot]
     
     plt.close()
-    plt.figure()
+    plt.figure(figsize=(12,12))
     
-    #plt.plot(t['dl']/t['l'], t['detot']/t['etot'], 'ko', ms=4)
-    plt.scatter(t['dl']/t['l'], t['detot']/t['etot'], c=t['rperi'], vmin=0.1, vmax=10, cmap='Blues_r')
-    #plt.scatter(t['dl']/t['l'], t['detot']/t['etot'], c=t['rapo'], vmin=5, vmax=20)
+    plt.plot(t['dl']/t['l'], t['detot']/t['etot'], 'rx', ms=3, mew=0.2, alpha=0.5)
     
     plt.gca().set_xscale('log')
     plt.gca().set_yscale('log')
@@ -1448,35 +1449,36 @@ def plot_morphology(hid=523889, lowmass=True, halo=True, high=True):
     plt.xlabel('$\sigma$|L| / |L|')
     plt.ylabel('$\sigma$E$_{tot}$ / E$_{tot}$')
     
+    plt.tight_layout()
+
+    # add streams
     ax0 = plt.gca()
+    data_bbox = ax0.viewLim
+    fig_bbox = ax0.bbox._bbox
     
-    #to_plot = np.linspace(0, np.sum(ind_done)-1, 40, dtype=int)
-    to_plot = np.linspace(0, 500, 40, dtype=int)
+    xd = t['dl']/t['l']
+    kx = (fig_bbox.x1 - fig_bbox.x0) / (np.log10(data_bbox.x1) - np.log10(data_bbox.x0))
+    xf = fig_bbox.x0 + kx*(np.log10(xd) - np.log10(data_bbox.x0))
     
-    if high:
-        ind_sel = t['detot']/t['etot'] > 8e-3
-    else:
-        ind_sel = t['detot']/t['etot'] <= 8e-3
-    to_plot = ind_all[ind_sel & ind_done][:30]
+    yd = t['detot']/t['etot']
+    ky = (fig_bbox.y1 - fig_bbox.y0) / (np.log10(data_bbox.y1) - np.log10(data_bbox.y0))
+    yf = fig_bbox.y0 + ky*(np.log10(yd) - np.log10(data_bbox.y0))
     
-    colors = mpl.cm.spring(np.linspace(0,1,len(to_plot)))
+    aw = 0.06
+    ah = 0.5*aw
     
-    for e, i in enumerate(to_plot):
-        #i = ind_all[ind_done][i_]
-        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'rb'))
+    for i in range(Nplot):
+        plt.axes([xf[i]-0.5*aw, yf[i]-0.5*ah, aw, ah], projection='mollweide')
+        
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
         cg = pkl['cg']
         
-        plt.sca(ax0)
-        plt.plot(t['dl'][i]/t['l'][i], t['detot'][i]/t['etot'][i], '*', color=colors[e], ms=15)
-        plt.text(t['dl'][i]/t['l'][i], t['detot'][i]/t['etot'][i], '{:d}'.format(e), ha='center', va='center', fontsize=8)
-        
-        plt.axes([0+0.1*(e%10),0.95-0.05*(e//10),0.1,0.05], projection='mollweide')
-        plt.plot(cg.l.wrap_at(180*u.deg).radian[::100], cg.b.radian[::100], 'o', color=colors[e], ms=0.1, alpha=0.5)
-        plt.text(0,0,'{:d}'.format(e), ha='center', va='center', fontsize=8)
+        plt.plot(cg.l.wrap_at(180*u.deg).radian[::100], cg.b.radian[::100], 'ko', ms=0.5, mew=0, alpha=0.2)
         plt.axis('off')
     
-    plt.tight_layout()
-    plt.savefig('../plots/streaminess_dedl_{:d}.png'.format(high))
+    plt.savefig('../plots/streaminess_dedl_{:d}.png'.format(Nplot))
+
+
 
 
 # visualization
