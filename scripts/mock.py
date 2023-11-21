@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 from astropy.table import Table #, QTable, hstack, vstack
 import astropy.units as u
@@ -20,6 +21,7 @@ from scipy.optimize import minimize
 from functools import partial
 import pickle
 import time
+import glob
 
 import healpy as hp
 from skimage import io, color
@@ -445,14 +447,21 @@ def stream_number(hid=0, lowmass=True):
         ind = (t['haloID']==hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
         print('Halo: {:d}, streams: {:d}, disrupted in the main halo: {:d}'.format(hid, np.sum(t['haloID']==hid), np.sum(ind)))
 
-def all_orbits(hid=0, lowmass=True, test=False):
+def all_orbits(hid=0, lowmass=True, test=False, disrupt=True):
     """Calculate orbits of all disrupted globular clusters in a halo"""
+    
+    if disrupt:
+        label_in = 'disrupt'
+        label = 'progenitors'
+    else:
+        label_in = 'survive'
+        label = 'gcs'
     
     # read table
     if lowmass:
-        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_{:s}.txt'.format(label_in), format='ascii.commented_header', delimiter=' ')
     else:
-        t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+        t = Table.read('../data/mw_like_4.0_0.5_lambda_{:s}.txt'.format(label_in), format='ascii.commented_header', delimiter=' ')
     
     hid = np.unique(t['haloID'])[hid]
     ind = (t['haloID']==hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
@@ -467,14 +476,6 @@ def all_orbits(hid=0, lowmass=True, test=False):
     c = coord.Galactocentric(x=-1*t['x']*u.kpc, y=t['y']*u.kpc, z=t['z']*u.kpc, v_x=-1*t['vx']*u.km/u.s, v_y=t['vy']*u.km/u.s, v_z=t['vz']*u.km/u.s)
     w0 = gd.PhaseSpacePosition(c.transform_to(gc_frame).cartesian)
     
-    ## setup potential
-    #bulgePot = ham_mw.potential['bulge']
-    #diskPot = ham_mw.potential['disk']
-    #haloPot = ham_mw.potential['halo']
-    
-    #totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
-    #ham = gp.Hamiltonian(totalPot)
-    
     # integration setup
     dt = -1*u.Myr
     T = 5*u.Gyr
@@ -482,7 +483,7 @@ def all_orbits(hid=0, lowmass=True, test=False):
     
     # integrate orbits
     orbit = ham.integrate_orbit(w0, dt=dt, n_steps=nstep)
-    pickle.dump(orbit, open('../data/orbits_halo.{:d}.pkl'.format(hid), 'wb'))
+    pickle.dump(orbit, open('../data/orbits_{:s}_halo.{:d}_lowmass.{:d}.pkl'.format(label, hid, lowmass), 'wb'))
     
     # orbit summary
     rperi = orbit.pericenter()
@@ -499,7 +500,7 @@ def all_orbits(hid=0, lowmass=True, test=False):
     t.rename_column('[Fe/H]', 'FeH')
     
     t.pprint()
-    t.write('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
+    t.write('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(label, hid, lowmass), overwrite=True)
     
 def compare_orbits(hid=523889, lowmass=True, fraction=True):
     """Compare orbital peri- and apocenters in the MW potential vs TNG"""
@@ -568,10 +569,10 @@ def maxLcirc(Etot):
     res = minimize(optfunc, np.array([0.1]), method='BFGS')
     return np.abs(res.fun)
 
-def circularity(hid=523889, lowmass=True):
+def circularity(hid=523889, lowmass=True, target='progenitors'):
     """"""
     
-    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     
     # calculate circularity
     maxLcirc_vec = np.vectorize(maxLcirc)
@@ -581,13 +582,13 @@ def circularity(hid=523889, lowmass=True):
     t['circLz'] = np.abs(t['lz']/t['lmax'])
     
     t.pprint()
-    t.write('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
+    t.write('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass), overwrite=True)
 
 
-def host_massloss(hid=523889, lowmass=True):
+def host_massloss(hid=523889, lowmass=True, target='progenitors'):
     """Estimate mass loss in the progenitor dwarf galaxy"""
     
-    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     ind_insitu = t['t_accrete']==-1
     
     f_dyn = np.ones(len(t))
@@ -596,7 +597,7 @@ def host_massloss(hid=523889, lowmass=True):
     t['f_dyn'] = f_dyn
     
     t.pprint()
-    t.write('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
+    t.write('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass), overwrite=True)
 
 
 def get_halo(t, full=True):
@@ -634,18 +635,16 @@ def define_halo(hid=523889, lowmass=True):
     plt.tight_layout()
 
 
-def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, verbose=False, halo=True, istart=0, nskip=1, remaining=False):
+def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, target='progenitors', verbose=False, halo=True, istart=0, nskip=1, remaining=False):
     """Create a mock stream from a disrupted globular cluster"""
     
-    #if lowmass:
-        #t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
-    #else:
-        #t = Table.read('../data/mw_like_4.0_0.5_lambda_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    if target=='progenitors':
+        label = 'stream'
+    else:
+        label = 'gc'
     
-    #hid = np.unique(t['haloID'])[hid]
-    #ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
-    #t = t[ind]
-    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    
+    t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
     
     # starting time of dissolution (birth for in-situ, accretion time for accreted)
@@ -660,7 +659,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
     c = coord.Galactocentric(x=-1*t['x']*u.kpc, y=t['y']*u.kpc, z=t['z']*u.kpc, v_x=-1*t['vx']*u.km/u.s, v_y=t['vy']*u.km/u.s, v_z=t['vz']*u.km/u.s)
     w0 = gd.PhaseSpacePosition(c.transform_to(gc_frame).cartesian)
     
-    ## integration set up
+    # integration set up
     dt = -1*u.Myr
     
     # setup how stars get released from the progenitor
@@ -672,20 +671,25 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
     
     if halo:
         ind_all = np.arange(N, dtype=int)
-        ind_halo = get_halo(t)
+        if target=='progenitors':
+            ind_halo = get_halo(t)
+        else:
+            ind_halo = get_halo(t, full=True)
         to_run = ind_all[ind_halo]
     else:
         to_run = np.arange(i0, N, 1, dtype=int)
     
     if remaining:
-        to_run = np.load('../data/to_run.npy')
+        to_run = np.load('../data/to_run_{:s}.npy'.format(target))
     
         if test:
             to_run = [to_run[i0],]
     
+    print(np.size(to_run))
+    to_run = to_run[::-1]
+    
     if test:
         to_run = [to_run[0],]
-    
     
     for i in to_run[istart::nskip]:
         try:
@@ -694,30 +698,21 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
             # define number of steps to start of dissolution
             n_steps = int((t_start[i]*u.Gyr/np.abs(dt)).decompose())
             n_disrupted = int((t_end[i]*u.Gyr/np.abs(dt)).decompose())
+            n_disrupting = n_steps - n_disrupted
             
-            nsingle = int(np.abs((t_start[i]-t_end[i])/dt.to(u.Gyr).value))
+            # still surviving globular clusters
+            if t_end[i]<0:
+                n_disrupting = n_steps
+                n_disrupted = 0
             
-            # read isochrone
+            # read isochrones
             age = np.around(t['t_form'][i], decimals=1)
             feh = np.around(t['FeH'][i], decimals=1)
             iso_lsst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='lsst')
             iso_jwst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='jwst')
             
-            # interpolate isochrone
-            bbox = [np.min(iso_lsst['initial_mass']), np.max(iso_lsst['initial_mass'])]
-
-            # sample masses
-            masses = sample_kroupa(t['logMgc_at_birth'][i])
-            ind_alive = masses<bbox[1]
-            masses = masses[ind_alive]
-            
-            # subsample mass
-            if f<1:
-                nchoose = int(f * np.size(masses))
-                masses = np.random.choice(masses, size=nchoose, replace=False)
-            
-            # sort masses (assuming lowest mass get kicked out first)
-            masses = np.sort(masses)
+            # total mass of stream stars
+            mass_stream = prog_mass[i].value
             
             # for accreted clusters, account for stars tidally stripped in the original host galaxy
             if ~ind_insitu[i]:
@@ -725,82 +720,107 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ve
                 t_prog = t['t_form'][i] - t['t_accrete'][i]
                 f_dyn = 1 - 0.06*(t_prog)
                 
-                mass_cumsum = np.cumsum(masses)
-                ind_mass = np.argmin(np.abs(mass_cumsum - (1-f_dyn)*np.sum(masses)))
+                # mass at accretion
+                mass_stream = (1 - f_dyn) * prog_mass[i].value
+                
+            # for surviving clusters, only simulate released stars
+            if t_end[i]<0:
+                # remaining mass
+                current_mass = 10**t['logMgc'][i]
+                mass_stream = mass_stream - current_mass
+            
+            if mass_stream<=0:
+                print('All stream stars released prior to accretion onto the Milky Way')
+            else:
+                # sample masses
+                masses = sample_kroupa(np.log10(mass_stream))
+                
+                # subsample mass
+                if f<1:
+                    nchoose = int(f * np.size(masses))
+                    masses = np.random.choice(masses, size=nchoose, replace=False)
+                
+                ## sort masses (assuming lowest mass get kicked out first)
+                #masses = np.sort(masses)
+                
+                # don't simulate stellar remnants
+                bbox = [np.min(iso_lsst['initial_mass']), np.max(iso_lsst['initial_mass'])]
+                ind_alive = masses<bbox[1]
+                masses = masses[ind_alive]
+                
+                # make it an even number of stars
+                if np.size(masses)%2:
+                    masses = masses[:-1]
+                
+                #print(np.size(masses), np.min(masses), np.max(masses))
+                #return 0
+                
+                nstar = np.size(masses)
+                ntail = int(nstar/2)
+                
+                # uniformly release the exact number of stars
+                navg = ntail//n_disrupting
+                nrelease = np.ones(n_disrupting, dtype=int) * navg
+                nextra = int(ntail - np.sum(nrelease))
+                nrelease[:nextra] += 1
+                
+                # add extra steps
+                nrelease = np.concatenate([nrelease, np.zeros(n_steps - n_disrupting + 1, dtype=int)])
+                #print(nrelease)
+                if verbose: print('Ntail: {:d}, Nrelease: {:d}'.format(ntail, np.sum(nrelease)))
 
-                masses = masses[ind_mass:]
-            
-            # make it an even number of stars
-            if np.size(masses)%2:
-                masses = masses[:-1]
-            
-            nstar = np.size(masses)
-            ntail = int(nstar/2)
-            
-            # uniformly release the exact number of stars
-            navg = ntail//n_disrupted
-            nrelease = np.ones(n_disrupted, dtype=int) * navg
-            nextra = int(ntail - np.sum(nrelease))
-            nrelease[:nextra] += 1
-            
-            # add extra steps
-            nrelease = np.concatenate([nrelease, np.zeros(n_steps - n_disrupted + 1, dtype=int)])
-            if verbose: print('Ntail: {:d}, Nrelease: {:d}'.format(ntail, np.sum(nrelease)))
-
-            # create mock stream
-            t1 = time.time()
-            stream_, prog = gen.run(w0[i], prog_mass[i], dt=dt, n_steps=n_steps, n_particles=nrelease)
-            t2 = time.time()
-            if verbose: print('Runtime: {:g}'.format(t2-t1))
-            
-            ##################
-            # paint photometry
-            # get distance modulus
-            cg = stream_.to_coord_frame(coord.Galactic())
-            dm = 5*np.log10((cg.distance.to(u.pc)).value) - 5
-            
-            # interpolate isochrone
-            order = 1
-            interp_g = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_g'], k=order, bbox=bbox)
-            interp_r = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_r'], k=order, bbox=bbox)
-            interp_f200w = InterpolatedUnivariateSpline(iso_jwst['initial_mass'], iso_jwst['F200W'], k=order, bbox=bbox)
-            
-            # photometry (no uncertainties)
-            r = interp_r(masses) + dm
-            g = interp_g(masses) + dm
-            f200w = interp_f200w(masses) + dm
-            
-            #############
-            # save stream
-            outdict = dict(cg=cg, mass=masses, g=g, r=r, f200w=f200w)
-            pickle.dump(outdict, open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i), 'wb'))
-            
-            if graph:
-                # plot sky coordinates
-                ind = np.arange(np.size(cg.l))
+                # create mock stream
+                t1 = time.time()
+                stream_, prog = gen.run(w0[i], prog_mass[i], dt=dt, n_steps=n_steps, n_particles=nrelease)
+                t2 = time.time()
+                if verbose: print('Runtime: {:g}'.format(t2-t1))
                 
-                plt.close()
-                plt.figure()
+                ##################
+                # paint photometry
+                # get distance modulus
+                cg = stream_.to_coord_frame(coord.Galactic())
+                dm = 5*np.log10((cg.distance.to(u.pc)).value) - 5
                 
-                #plt.plot(cg.l, cg.b, 'k.')
-                plt.scatter(cg.l.wrap_at(180*u.deg), cg.b, c=ind, s=cg.distance.value**-1)
+                # interpolate isochrone
+                order = 1
+                interp_g = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_g'], k=order, bbox=bbox)
+                interp_r = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_r'], k=order, bbox=bbox)
+                interp_f200w = InterpolatedUnivariateSpline(iso_jwst['initial_mass'], iso_jwst['F200W'], k=order, bbox=bbox)
                 
-                plt.xlabel('l [deg]')
-                plt.ylabel('b [deg]')
-                plt.gca().set_aspect('equal')
-                plt.tight_layout()
-                plt.savefig('../plots/streams/halo.{:d}_stream.{:04d}.png'.format(hid, i))
+                # photometry (no uncertainties)
+                r = interp_r(masses) + dm
+                g = interp_g(masses) + dm
+                f200w = interp_f200w(masses) + dm
+                
+                #############
+                # save stream
+                outdict = dict(cg=cg, mass=masses, g=g, r=r, f200w=f200w)
+                pickle.dump(outdict, open('../data/streams/halo.{:d}_{:s}.{:04d}.pkl'.format(hid, label, i), 'wb'))
+                
+                if graph:
+                    # plot sky coordinates
+                    ind = np.arange(np.size(cg.l))
+                    
+                    plt.close()
+                    plt.figure()
+                    
+                    #plt.plot(cg.l, cg.b, 'k.')
+                    plt.scatter(cg.l.wrap_at(180*u.deg), cg.b, c=ind, s=cg.distance.value**-1)
+                    
+                    plt.xlabel('l [deg]')
+                    plt.ylabel('b [deg]')
+                    plt.gca().set_aspect('equal')
+                    plt.tight_layout()
+                    plt.savefig('../plots/streams/halo.{:d}_{:s}.{:04d}.png'.format(hid, label, i))
         except Exception as error:
             print('An exception occurred at stream {:d}: '.format(i), error)
             fout_failed = open('failed_ids', 'a')
             fout_failed.write('{:d}\n'.format(i))
             fout_failed.close()
 
-import glob
-
-def get_remaining(hid=523889, lowmass=True, halo=True):
+def get_remaining(hid=523889, lowmass=True, halo=True, target='progenitors'):
     """"""
-    t = Table.read('../data/stream_progenitors_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
     ind_all = np.arange(N, dtype=int)
     
@@ -810,7 +830,12 @@ def get_remaining(hid=523889, lowmass=True, halo=True):
     else:
         to_run = ind_all
     
-    fout = glob.glob('../data/streams/halo.{:d}*'.format(hid))
+    if target=='progenitors':
+        label = 'stream'
+    else:
+        label = 'gc'
+    
+    fout = glob.glob('../data/streams/halo.{:d}_{:s}*'.format(hid, label))
     print(len(fout), len(to_run))
     
     ind_remaining = np.ones(N, dtype=bool)
@@ -823,7 +848,7 @@ def get_remaining(hid=523889, lowmass=True, halo=True):
     print(np.sum(ind_remaining), len(to_run)-len(fout))
     print(ind_all[ind_remaining])
 
-    np.save('../data/to_run.npy', ind_all[ind_remaining])
+    np.save('../data/to_run_{:s}.npy'.format(target), ind_all[ind_remaining])
     
     
 
@@ -942,10 +967,10 @@ def paint_masses(hid=0):
     plt.gca().set_yscale('log')
     plt.tight_layout()
 
-def needed_isochrones(hid=0):
+def needed_isochrones(hid=0, target='disrupt'):
     """Print ages and metallicities needed"""
     
-    t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_disrupt.txt', format='ascii.commented_header', delimiter=' ')
+    t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_{:s}.txt'.format(target), format='ascii.commented_header', delimiter=' ')
     hid = np.unique(t['haloID'])[hid]
     ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
     t = t[ind]
@@ -1424,7 +1449,62 @@ def get_streaminess(hid=523889, lowmass=True, halo=True):
     
     plt.tight_layout()
 
-def plot_morphology(hid=523889, lowmass=True, halo=True, Nplot=100):
+def plot_morphology_elz(hid=523889, lowmass=True, halo=True, Nplot=100):
+    """"""
+    
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l']) & np.isfinite(t['dl']) #& (t['dl']/t['l']>1e-2)
+    
+    to_plot = ind_all[ind_done]
+    np.random.seed(381)
+    to_plot = np.random.choice(to_plot, size=Nplot, replace=False)
+    
+    t = t[to_plot]
+    
+    plt.close()
+    plt.figure(figsize=(12,12))
+    
+    plt.plot(t['l'], t['etot'], 'rx', ms=3, mew=0.2, alpha=0.5)
+    
+    #plt.gca().set_xscale('log')
+    #plt.gca().set_yscale('log')
+    
+    plt.xlabel('$L$')
+    plt.ylabel('E$_{tot}$')
+    
+    plt.tight_layout()
+
+    # add streams
+    ax0 = plt.gca()
+    data_bbox = ax0.viewLim
+    fig_bbox = ax0.bbox._bbox
+    
+    xd = t['lz']
+    kx = (fig_bbox.x1 - fig_bbox.x0) / (np.log10(data_bbox.x1) - np.log10(data_bbox.x0))
+    xf = fig_bbox.x0 + kx*(np.log10(xd) - np.log10(data_bbox.x0))
+    
+    yd = t['etot']
+    ky = (fig_bbox.y1 - fig_bbox.y0) / (np.log10(data_bbox.y1) - np.log10(data_bbox.y0))
+    yf = fig_bbox.y0 + ky*(np.log10(yd) - np.log10(data_bbox.y0))
+    
+    aw = 0.06
+    ah = 0.5*aw
+    
+    for i in range(Nplot):
+        plt.axes([xf[i]-0.5*aw, yf[i]-0.5*ah, aw, ah], projection='mollweide')
+        
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        cg = pkl['cg']
+        
+        plt.plot(cg.l.wrap_at(180*u.deg).radian[::100], cg.b.radian[::100], 'ko', ms=0.5, mew=0, alpha=0.2)
+        plt.axis('off')
+    
+    plt.savefig('../plots/streaminess_elz_{:d}.png'.format(Nplot))
+
+
+def plot_morphology_old(hid=523889, lowmass=True, halo=True, Nplot=100):
     """"""
     
     t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
@@ -1478,6 +1558,319 @@ def plot_morphology(hid=523889, lowmass=True, halo=True, Nplot=100):
     
     plt.savefig('../plots/streaminess_dedl_{:d}.png'.format(Nplot))
 
+
+# Streaminess
+
+def stream_frames(hid=523889, lowmass=True):
+    """Determine reference frames aligned with each stream progenitor's orbit"""
+    
+    orbits = pickle.load(open('../data/orbits_progenitors_halo.{:d}_lowmass.{:d}.pkl'.format(hid, lowmass), 'rb'))
+    print(np.shape(orbits.x))
+    N = np.shape(orbits.x)[1]
+    
+    frames = []
+    #N = 10
+    
+    for i in range(N):
+        orbit = orbits[:,i]
+        c = orbit.to_coord_frame(coord.ICRS())
+        
+        # pick 10Myr point in the past, 10Myr point in the future
+        endpoints = [c[0], c[10]]
+        
+        # frame from endpoints
+        frame = gc.GreatCircleICRSFrame.from_endpoints(endpoints[0], endpoints[1], origin=c[0])
+        cs = c.transform_to(frame)
+        #print(cs[0])
+        frames += [frame]
+    
+    # output
+    pickle.dump(frames, open('../data/frames_halo.{:d}_lowmass.{:d}.pkl'.format(hid, lowmass), 'wb'))
+
+def sky_dispersion(hid=523889, lowmass=True, f=0.2):
+    """"""
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l']) #& (t['dl']/t['l']>1e-2)
+    to_plot = ind_all[ind_done][:]
+    
+    frames = pickle.load(open('../data/frames_halo.{:d}_lowmass.{:d}.pkl'.format(hid, lowmass), 'rb'))
+    
+    print(N, len(frames))
+    
+    t['std_phi1'] = np.empty(N) * np.nan * u.deg
+    t['std_phi2'] = np.empty(N) * np.nan * u.deg
+    t['std_l'] = np.empty(N) * np.nan * u.deg
+    t['std_b'] = np.empty(N) * np.nan * u.deg
+    t['med_l'] = np.empty(N) * np.nan * u.deg
+    t['med_b'] = np.empty(N) * np.nan * u.deg
+    
+    #N = 100
+    N = np.sum(ind_done)
+    #N = 10
+
+    for i in range(N):
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        cg = pkl['cg']
+        
+        cs = cg.transform_to(frames[to_plot[i]])
+        Nstar = np.size(cs.phi1)
+        Ncalc = int(f*Nstar)
+        
+        t['std_phi1'][to_plot[i]] = np.std(cs.phi1.deg[:Ncalc])
+        t['std_phi2'][to_plot[i]] = np.std(cs.phi2.deg[:Ncalc])
+        t['std_l'][to_plot[i]] = np.std(cg.l.wrap_at(180*u.deg).deg)
+        t['std_b'][to_plot[i]] = np.std(cg.b.deg)
+        t['med_l'][to_plot[i]] = np.median(cg.l.wrap_at(180*u.deg).deg)
+        t['med_b'][to_plot[i]] = np.median(cg.b.deg)
+
+    t.write('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
+
+    plt.close()
+    plt.figure()
+    
+    plt.plot(cs.phi1.deg[:], cs.phi2.deg[:], 'ko', ms=2)
+    plt.plot(cs.phi1.deg[:Ncalc], cs.phi2.deg[:Ncalc], 'ro', ms=2)
+    print(np.std(cs.phi2.deg[:Ncalc]))
+    #plt.scatter(t['std_phi1'], t['std_phi2'], c=t['std_b'], vmin=0, vmax=20, cmap='viridis_r')
+    
+    plt.gca().set_aspect('equal')
+    plt.tight_layout()
+
+def plot_spread(hid=523889, lowmass=True):
+    """"""
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l']) #& (t['dl']/t['l']>1e-2)
+    to_plot = ind_all[ind_done][:]
+    
+    phi = np.linspace(0,np.pi*0.5,100)
+    r = 35
+    x_ = r * np.cos(phi)
+    y_ = r * np.sin(phi)
+    
+    plt.close()
+    plt.figure(figsize=(12,8))
+    
+    plt.scatter(t['std_phi1'], t['std_phi2'], c=t['std_b'], vmax=20, s=5, cmap='viridis_r')
+    #plt.scatter(t['std_phi1'], t['std_phi2'], c=t['circLz']*np.sign(t['lz']), vmax=-0.2, cmap='viridis_r', s=5)
+    
+    plt.plot(x_, y_, 'r-', lw=0.5)
+    
+    plt.gca().set_aspect('equal')
+    plt.tight_layout()
+
+def plot_morphology_sky(hid=523889, lowmass=True, halo=True, Nplot=100, log=False):
+    """"""
+    
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l']) #& (t['dl']/t['l']>1e-2)
+    
+    to_plot = ind_all[ind_done]
+    np.random.seed(381)
+    to_plot = np.random.choice(to_plot, size=Nplot, replace=False)
+    
+    t = t[to_plot]
+    
+    x_ = np.sqrt(t['med_l']**2 + t['med_b']**2)
+    y_ = np.abs(t['lz']/t['l'])
+    
+    plt.close()
+    plt.figure(figsize=(12,12))
+    
+    #plt.scatter(t['std_phi1'], t['std_phi2'], c=t['circLz']*np.sign(t['lz']), vmax=-0.2, cmap='viridis_r', s=2)
+    #plt.scatter(x_, t['std_phi2'], c=t['circLz']*np.sign(t['lz']), vmax=-0.2, cmap='viridis_r', s=2)
+    plt.scatter(x_, y_, c=t['circLz']*np.sign(t['lz']), vmax=-0.2, cmap='viridis_r', s=2)
+    
+    if log:
+        plt.gca().set_xscale('log')
+        #plt.gca().set_yscale('log')
+    
+    plt.xlim(0.02,200)
+    plt.ylim(0.01,1)
+    #plt.ylim(3,40)
+    
+    plt.xlabel('$\Delta_0$ [deg]')
+    plt.ylabel('|$L_z$ / L|')
+    
+    plt.tight_layout()
+
+    # add streams
+    ax0 = plt.gca()
+    data_bbox = ax0.viewLim
+    fig_bbox = ax0.bbox._bbox
+    
+    xd = x_
+    if log:
+        kx = (fig_bbox.x1 - fig_bbox.x0) / (np.log10(data_bbox.x1) - np.log10(data_bbox.x0))
+        xf = fig_bbox.x0 + kx*(np.log10(xd) - np.log10(data_bbox.x0))
+    else:
+        kx = (fig_bbox.x1 - fig_bbox.x0) / (data_bbox.x1 - data_bbox.x0)
+        xf = fig_bbox.x0 + kx*(xd - data_bbox.x0)
+
+    
+    yd = y_
+    if log:
+        ky = (fig_bbox.y1 - fig_bbox.y0) / (np.log10(data_bbox.y1) - np.log10(data_bbox.y0))
+        yf = fig_bbox.y0 + ky*(np.log10(yd) - np.log10(data_bbox.y0))
+        
+        ky = (fig_bbox.y1 - fig_bbox.y0) / (data_bbox.y1 - data_bbox.y0)
+        yf = fig_bbox.y0 + ky*(yd - data_bbox.y0)
+    else:
+        ky = (fig_bbox.y1 - fig_bbox.y0) / (data_bbox.y1 - data_bbox.y0)
+        yf = fig_bbox.y0 + ky*(yd - data_bbox.y0)
+    
+    aw = 0.1
+    ah = 0.5*aw
+    
+    for i in range(Nplot):
+        plt.axes([xf[i]-0.5*aw, yf[i]-0.5*ah, aw, ah], projection='mollweide')
+        
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        cg = pkl['cg']
+        
+        plt.plot(cg.l.wrap_at(180*u.deg).radian[::50], cg.b.radian[::50], 'ko', ms=0.5, mew=0, alpha=0.2)
+        plt.axis('off')
+    
+    plt.savefig('../plots/streaminess_sky_{:d}.png'.format(Nplot))
+
+def sky_morphology(hid=523889, lowmass=True, halo=True):
+    """"""
+    
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l']) & (t['dl']/t['l']>1e-2)
+    to_plot = ind_all[ind_done][:]
+    
+    t = t[to_plot]
+    N = len(t)
+    
+    sigma_l = np.zeros(N) * u.deg
+    sigma_b = np.zeros(N) * u.deg
+    med_l = np.zeros(N) * u.deg
+    med_b = np.zeros(N) * u.deg
+    
+    for i in range(N):
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        cg = pkl['cg']
+        
+        med_l[i] = np.median(cg.l.wrap_at(180*u.deg))
+        med_b[i] = np.median(cg.b)
+        sigma_l[i] = np.std(cg.l.wrap_at(180*u.deg))
+        sigma_b[i] = np.std(cg.b)
+    
+    med_sky = np.sqrt(med_b**2 + med_l**2)
+    
+    plt.close()
+    plt.figure()
+    
+    #plt.plot(sigma_l, sigma_b, 'ko', mew=0, ms=4, alpha=0.3)
+    #plt.scatter(sigma_l, sigma_b, c=med_sky.value, norm=mpl.colors.LogNorm(vmin=2, vmax=10))
+    plt.scatter(sigma_l, sigma_b, c=med_sky.value, vmin=2, vmax=10, s=5)
+    
+    plt.gca().set_xscale('log')
+    plt.gca().set_yscale('log')
+    plt.xlabel('$\sigma_l$ [deg]')
+    plt.ylabel('$\sigma_b$ [deg]')
+    
+    plt.tight_layout()
+    plt.savefig('../plots/sky_sigma_galactic.png')
+
+
+# Stream properties
+
+def get_rgal(hid=523889, lowmass=True, halo=True, test=False, graph=False):
+    """Calculate 25,50,75 percentiles of each stream's galactocentric radial distribution, and store in the summary table
+    test -- limit to first 10 streams
+    graph -- output histograms of streams' radial distributions, with each stream a page in the output pdf
+    """
+    
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l'])
+    
+    to_plot = ind_all[ind_done]
+    Nplot = np.size(to_plot)
+    
+    if test:
+        Nplot = 10
+    
+    t['rgal_stream'] = np.zeros(N) * np.nan * u.kpc
+    t['rgal_25'] = np.zeros(N) * np.nan * u.kpc
+    t['rgal_75'] = np.zeros(N) * np.nan * u.kpc
+    
+    if graph:
+        pp = PdfPages('../plots/rgal_streams.pdf')
+    
+    for i in range(Nplot):
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        cg = pkl['cg']
+        cgal = cg.transform_to(coord.Galactocentric())
+        
+        rgal = cgal.spherical.distance.to(u.kpc).value
+        
+        t['rgal_stream'][to_plot[i]] = np.median(rgal)
+        t['rgal_25'][to_plot[i]] = np.percentile(rgal, 25)
+        t['rgal_75'][to_plot[i]] = np.percentile(rgal, 75)
+        
+        if graph:
+            plt.close()
+            plt.figure(figsize=(10,6))
+        
+            plt.hist(rgal, bins=50, histtype='step', lw=2, label='Stream {:d}'.format(to_plot[i]))
+            plt.axvline(np.median(rgal), lw=1.5, color='r', label='Median: {:.2f} kpc'.format(np.median(rgal)))
+            plt.axvline(np.percentile(rgal, 25), lw=1.5, color='r', ls=':', label='IQR: {:.2f} kpc'.format(np.percentile(rgal, 75) - np.percentile(rgal, 25)))
+            plt.axvline(np.percentile(rgal, 75), lw=1.5, color='r', ls=':', label='')
+            
+            plt.legend(fontsize='small')
+            plt.xlabel('R$_{Gal}$ [kpc]')
+            plt.ylabel('Number')
+            
+            plt.tight_layout()
+            pp.savefig()
+    
+    if graph:
+        pp.close()
+    
+    t.pprint()
+    t.write('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
+
+def rgal_hist(hid=523889, lowmass=True, halo=True):
+    """Plot median, 25% and 75% of the streams' galactocentric radii"""
+    
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l'])
+    
+    to_plot = ind_all[ind_done]
+    Nplot = np.size(to_plot)
+    
+    print('max rgal:', np.max(t['rgal_stream'][ind_done]))
+    print('50, 90 rgal:', np.percentile(np.array(t['rgal_stream'][ind_done]), [50,90]))
+    
+    plt.close()
+    plt.figure(figsize=(10,6))
+    
+    plt.hist(t['rgal_25'][ind_done], bins=np.logspace(-0.8,2.1,100), histtype='stepfilled', color=mpl.cm.Blues(0.5), alpha=0.2, label='25%')
+    plt.hist(t['rgal_75'][ind_done], bins=np.logspace(-0.8,2.1,100), histtype='stepfilled', color=mpl.cm.Blues(0.9), alpha=0.2, label='75%')
+    plt.hist(t['rgal_stream'][ind_done], bins=np.logspace(-0.8,2.1,100), histtype='step', color=mpl.cm.Blues(0.7), lw=2, label='Median')
+    
+    plt.gca().set_xscale('log')
+    plt.gca().set_yscale('log')
+    
+    plt.legend(fontsize='small', loc=2)
+    plt.xlabel('$R_{Gal}$ [kpc]')
+    plt.ylabel('Number')
+    
+    plt.tight_layout()
+    plt.savefig('../plots/rgal_total.png')
 
 
 
