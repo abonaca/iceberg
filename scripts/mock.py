@@ -599,6 +599,140 @@ def host_massloss(hid=523889, lowmass=True, target='progenitors'):
     t.pprint()
     t.write('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass), overwrite=True)
 
+def max_mass(hid=523889, lowmass=True, target='progenitors', verbose=True):
+    """Construct a dictionary with a maximum mass of a living star for a given isochrone"""
+    
+    t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+
+    # isochrones
+    age = np.around(t['t_form'], decimals=1)
+    feh = np.around(t['FeH'], decimals=1)
+    
+    label = np.array(['age{:.1f}feh{:.1f}'.format(age_, feh_) for age_, feh_ in zip(age, feh)])
+    
+    # construct dictionary
+    mmax = dict()
+    
+    for l in np.unique(label)[:]:
+        if verbose: print(l)
+        age = float(l.split('age')[1].split('feh')[0])
+        feh = float(l.split('feh')[1])
+        if verbose: print(age, feh)
+        
+        iso_lsst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='lsst')
+        mmax[l] = np.max(iso_lsst['initial_mass'])
+    
+    print(mmax)
+    pickle.dump(mmax, open('../data/max_mass_{:s}_halo.{:d}_lowmass.{:d}.pkl'.format(target, hid, lowmass), 'wb'))
+
+def nstar_sample(hid=523889, lowmass=True, target='progenitors', test=False):
+    """"""
+    
+    if target=='progenitors':
+        # fully dissolved
+        label = 'stream'
+    else:
+        # surviving cluster
+        label = 'gc'
+    
+    t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    N = len(t)
+    
+    # starting time of dissolution (birth for in-situ, accretion time for accreted)
+    # caveat: missing fluff of stars potentially dissolved before accretion time
+    ind_insitu = t['t_accrete']==-1
+    t_start = t['t_accrete'][:]
+    t_start[ind_insitu] = t['t_form'][ind_insitu][:]
+    
+    t_end = t['t_disrupt'][:]
+    
+    prog_mass = 10**t['logMgc_at_birth']*u.Msun
+    
+    t_prog = t['t_form'] - t['t_accrete']
+    f_dyn = 1 - 0.06*(t_prog)
+    insitu_mass = 10**t['logMgc_at_birth']*u.Msun
+    insitu_mass[~ind_insitu] = (1 - f_dyn[~ind_insitu]) * prog_mass[~ind_insitu]
+    
+    # define number of steps to start of dissolution
+    dt = -1*u.Myr
+    #print((t_start*u.Gyr/np.abs(dt)).decompose())
+    n_steps = np.int64((t_start*u.Gyr/np.abs(dt)).decompose())
+    n_disrupted = np.int64((t_end*u.Gyr/np.abs(dt)).decompose())
+    n_disrupting = n_steps - n_disrupted
+    
+    # isochrones
+    age = np.around(t['t_form'], decimals=1)
+    feh = np.around(t['FeH'], decimals=1)
+    iso_label = np.array(['age{:.1f}feh{:.1f}'.format(age_, feh_) for age_, feh_ in zip(age, feh)])
+    mmax = pickle.load(open('../data/max_mass_{:s}_halo.{:d}_lowmass.{:d}.pkl'.format(target, hid, lowmass), 'rb'))
+    
+    sampled_mass = np.zeros_like(prog_mass)
+    nstar = np.zeros(N, dtype=int)
+    
+    if test:
+        N = 100
+    
+    for i in range(N):
+        mass_stream = prog_mass[i].value
+        
+        masses = sample_kroupa(np.log10(mass_stream))
+        sampled_mass[i] = np.sum(masses) * u.Msun
+        
+        # pre-accretion mass loss
+        if ~ind_insitu[i]:
+            np.random.seed(52)
+            np.random.shuffle(masses)
+            
+            cumsum_mass = np.cumsum(masses)
+            ind_mass = np.argmin(np.abs(cumsum_mass - insitu_mass[i].value))
+            masses = masses[:ind_mass+1]
+            
+        # don't simulate stellar remnants
+        ind_alive = masses<mmax[iso_label[i]]
+        masses = masses[ind_alive]
+        
+        nstar[i] = np.size(masses)
+    
+    delta_mass = prog_mass - sampled_mass
+    ntail = np.int64(nstar/2)
+    navg = np.array(ntail / n_disrupting)
+    
+    print(np.percentile(navg, [0.1,1,5,50,99]), np.min(navg))
+    print(np.sum(navg<1))
+    print(np.sum(~ind_insitu))
+    print(np.sum((navg<1) & ind_insitu))
+    print(np.percentile(ntail, [0.1,1,5,50,99]), np.min(ntail))
+    
+    plt.close()
+    fig, ax = plt.subplots(1,4,figsize=(16,4))
+    
+    plt.sca(ax[0])
+    plt.hist(delta_mass.value, bins=100)
+    plt.axvline(np.median(delta_mass.value), color='r')
+    plt.xlabel('$\Delta$M [$M_\odot$]')
+    plt.ylabel('Number')
+    
+    plt.sca(ax[1])
+    plt.hist(delta_mass.value/prog_mass.value, bins=100)
+    plt.xlabel('$\Delta$M / $M_{gc}$')
+    plt.ylabel('Number')
+    
+    plt.sca(ax[2])
+    plt.hist(nstar, bins=np.logspace(2,6.5))
+    plt.gca().set_xscale('log')
+    plt.xlabel('N$_\star$')
+    plt.ylabel('Number')
+    
+    plt.sca(ax[3])
+    plt.hist(navg, bins=np.logspace(-2,4.1))
+    plt.axvline(np.median(navg), color='r')
+    plt.gca().set_xscale('log')
+    plt.xlabel('N$_{release}$')
+    plt.ylabel('Number')
+    
+    plt.tight_layout()
+    plt.savefig('../plots/sampling_diagnostics.png')
+
 
 def get_halo(t, full=True):
     """"""
@@ -639,8 +773,10 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
     """Create a mock stream from a disrupted globular cluster"""
     
     if target=='progenitors':
+        # fully dissolved
         label = 'stream'
     else:
+        # surviving cluster
         label = 'gc'
     
     
@@ -655,6 +791,15 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
     
     t_end = t['t_disrupt'][:]
     
+    # cluster mass
+    prog_mass = 10**t['logMgc_at_birth']*u.Msun
+    t_prog = t['t_form'] - t['t_accrete']
+    f_dyn = 1 - 0.06*(t_prog)
+
+    insitu_mass = 10**t['logMgc_at_birth']*u.Msun
+    insitu_mass[~ind_insitu] = (1 - f_dyn[~ind_insitu]) * prog_mass[~ind_insitu]
+    
+    
     # present-day cluster positions
     c = coord.Galactocentric(x=-1*t['x']*u.kpc, y=t['y']*u.kpc, z=t['z']*u.kpc, v_x=-1*t['vx']*u.km/u.s, v_y=t['vy']*u.km/u.s, v_z=t['vz']*u.km/u.s)
     w0 = gd.PhaseSpacePosition(c.transform_to(gc_frame).cartesian)
@@ -665,8 +810,6 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
     # setup how stars get released from the progenitor
     state = np.random.RandomState(seed=291)
     df = ms.FardalStreamDF(random_state=state)
-
-    prog_mass = 10**t['logMgc_at_birth']*u.Msun
     gen = ms.MockStreamGenerator(df, ham)
     
     if halo:
@@ -686,7 +829,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
             to_run = [to_run[i0],]
     
     print(np.size(to_run))
-    to_run = to_run[::-1]
+    #to_run = to_run[::-1]
     
     if test:
         to_run = [to_run[0],]
@@ -709,19 +852,19 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
             age = np.around(t['t_form'][i], decimals=1)
             feh = np.around(t['FeH'][i], decimals=1)
             iso_lsst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='lsst')
-            iso_jwst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='jwst')
+            #iso_jwst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='jwst')
             
             # total mass of stream stars
             mass_stream = prog_mass[i].value
             
-            # for accreted clusters, account for stars tidally stripped in the original host galaxy
-            if ~ind_insitu[i]:
-                # length of time spent in the progenitor galaxy
-                t_prog = t['t_form'][i] - t['t_accrete'][i]
-                f_dyn = 1 - 0.06*(t_prog)
+            ## for accreted clusters, account for stars tidally stripped in the original host galaxy
+            #if ~ind_insitu[i]:
+                ## length of time spent in the progenitor galaxy
+                #t_prog = t['t_form'][i] - t['t_accrete'][i]
+                #f_dyn = 1 - 0.06*(t_prog)
                 
-                # mass at accretion
-                mass_stream = (1 - f_dyn) * prog_mass[i].value
+                ## mass at accretion
+                #mass_stream = (1 - f_dyn) * prog_mass[i].value
                 
             # for surviving clusters, only simulate released stars
             if t_end[i]<0:
@@ -734,6 +877,15 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
             else:
                 # sample masses
                 masses = sample_kroupa(np.log10(mass_stream))
+                
+                # for accreted clusters, account for stars tidally stripped in the original host galaxy
+                if ~ind_insitu[i]:
+                    np.random.seed(25)
+                    np.random.shuffle(masses)
+                
+                    cumsum_mass = np.cumsum(masses)
+                    ind_mass = np.argmin(np.abs(cumsum_mass - insitu_mass[i].value))
+                    masses = masses[:ind_mass+1]
                 
                 # subsample mass
                 if f<1:
@@ -760,9 +912,20 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
                 
                 # uniformly release the exact number of stars
                 navg = ntail//n_disrupting
-                nrelease = np.ones(n_disrupting, dtype=int) * navg
-                nextra = int(ntail - np.sum(nrelease))
-                nrelease[:nextra] += 1
+                if navg>=1:
+                    nrelease = np.ones(n_disrupting, dtype=int) * navg
+                    nextra = int(ntail - np.sum(nrelease))
+                    nrelease[:nextra] += 1
+                else:
+                    # fewer particles than time steps
+                    nrelease = np.zeros(n_disrupting, dtype=int)
+                    release_avg = int(np.ceil(n_disrupting/ntail))
+                    nrelease[::release_avg] = 1
+
+                    nextra = int(ntail - np.sum(nrelease))
+                    # get integer locations rather than a boolean array, so that we can slice it and assign a new value
+                    ind_empty = np.where(nrelease==0)[0]
+                    nrelease[ind_empty[:nextra]] = 1
                 
                 # add extra steps
                 nrelease = np.concatenate([nrelease, np.zeros(n_steps - n_disrupting + 1, dtype=int)])
@@ -785,17 +948,17 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
                 order = 1
                 interp_g = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_g'], k=order, bbox=bbox)
                 interp_r = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_r'], k=order, bbox=bbox)
-                interp_f200w = InterpolatedUnivariateSpline(iso_jwst['initial_mass'], iso_jwst['F200W'], k=order, bbox=bbox)
+                #interp_f200w = InterpolatedUnivariateSpline(iso_jwst['initial_mass'], iso_jwst['F200W'], k=order, bbox=bbox)
                 
                 # photometry (no uncertainties)
                 r = interp_r(masses) + dm
                 g = interp_g(masses) + dm
-                f200w = interp_f200w(masses) + dm
+                #f200w = interp_f200w(masses) + dm
                 
                 #############
                 # save stream
-                outdict = dict(cg=cg, mass=masses, g=g, r=r, f200w=f200w)
-                pickle.dump(outdict, open('../data/streams/halo.{:d}_{:s}.{:04d}.pkl'.format(hid, label, i), 'wb'))
+                outdict = dict(cg=cg, mass=masses, g=g, r=r) #, f200w=f200w)
+                pickle.dump(outdict, open('../data/streams/halo.{:d}_{:s}.{:.2f}.{:04d}.pkl'.format(hid, label, f, i), 'wb'))
                 
                 if graph:
                     # plot sky coordinates
@@ -1871,6 +2034,290 @@ def rgal_hist(hid=523889, lowmass=True, halo=True):
     
     plt.tight_layout()
     plt.savefig('../plots/rgal_total.png')
+
+
+def sb_levels(hid=523889, lowmass=True, halo=True, test=False, i0=0):
+    """Calculate stream surface brightness in healpix for a range of healpix levels"""
+    
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l'])
+    
+    to_plot = ind_all[ind_done]
+    Nplot = np.size(to_plot)
+    
+    if test:
+        Nplot = i0 + 1
+    else:
+        i0 = 0
+    
+    # Prepare the healpix pixels
+    m0 = -48.60
+    #m0 = 0
+    levels = np.arange(6,12.1,1,dtype=int)
+    
+    plt.close()
+    plt.figure(figsize=(12,7))
+    
+    for i in range(i0, Nplot):
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        cg = pkl['cg']
+        
+        #ind_lim = pkl['g']<glim
+        #cg = cg[ind_lim]
+        
+        flux = 10**(-(pkl['g'] - m0)/2.5)
+        
+        for j, level in enumerate(levels):
+            NSIDE = int(2**level)
+            da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcsec**2)
+            
+            ind_pix = hp.ang2pix(NSIDE, cg.l.deg, cg.b.deg, nest=False, lonlat=True)
+            
+            flux_tot = np.zeros(hp.nside2npix(NSIDE))
+            
+            for e, ind in enumerate(ind_pix):
+                flux_tot[ind] += flux[e]
+            
+            ind_detected = flux_tot > 0
+            s = -2.5*np.log10(flux_tot[ind_detected]/da.to(u.arcsec**2).value) + m0
+            ind_finite = np.isfinite(s)
+            
+            area = np.sum(ind_detected) * da.to(u.arcsec**2)
+            mu = -2.5*np.log10(np.sum(flux_tot[ind_detected])/area.to(u.arcsec**2).value) + m0
+            print(mu)
+            
+            color = mpl.cm.Blues(0.1+j/(np.size(levels)))
+            
+            plt.hist(s[ind_finite], bins=50, log=True, density=False, histtype='step', color=color, label='level {:d}, pix={:.2f}, $\mu_{{tot}}={:.1f}$ mag arcsec$^{{-2}}$'.format(level, np.sqrt(da).to(u.deg), mu))
+            plt.axvline(mu, color=color, lw=0.5, ls='--')
+    
+    plt.legend(fontsize='x-small', loc=2)
+    plt.xlabel('$\mu$ [mag arsec$^{-2}$]')
+    plt.ylabel('Number')
+    
+    plt.tight_layout()
+    plt.savefig('../plots/sb_levels_halo.{:d}_stream.{:04d}.png'.format(hid, to_plot[i]))
+
+def sb_glim(hid=523889, lowmass=True, halo=True, test=False, level=8, i0=0):
+    """Calculate stream surface brightness in healpix for a range of limiting magnitudes"""
+    
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l'])
+    
+    to_plot = ind_all[ind_done]
+    Nplot = np.size(to_plot)
+    print(Nplot)
+    
+    if test:
+        Nplot = i0 + 1
+    else:
+        i0 = 0
+    
+    # Prepare the healpix pixels
+    m0 = -48.60
+    glims = np.arange(22,27.1,1)
+    
+    NSIDE = int(2**level)
+    da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcsec**2)
+    
+    
+    plt.close()
+    plt.figure()
+    
+    for i in range(i0,Nplot):
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        
+        for j, glim in enumerate(glims):
+            ind_lim = pkl['g']<glim
+            cg = pkl['cg'][ind_lim]
+            
+            flux = 10**(-(pkl['g'][ind_lim] - m0)/2.5)
+            ind_pix = hp.ang2pix(NSIDE, cg.l.deg, cg.b.deg, nest=False, lonlat=True)
+            
+            flux_tot = np.zeros(hp.nside2npix(NSIDE))
+            
+            for e, ind in enumerate(ind_pix):
+                flux_tot[ind] += flux[e]
+            
+            s = -2.5*np.log10(flux_tot/da.to(u.arcsec**2).value) + m0
+            ind_finite = np.isfinite(s)
+            
+            area = np.sum(ind_finite) * da.to(u.arcsec**2)
+            mu = -2.5*np.log10(np.sum(flux_tot[ind_finite])/area.to(u.arcsec**2).value) + m0
+            
+            color = mpl.cm.Blues(0.1+j/(np.size(glims)))
+            
+            plt.hist(s[ind_finite], bins=50, log=True, density=False, histtype='step', color=color, label='g$_{{lim}}$={:.0f}mag, $\mu_{{tot}}$={:.1f}mag arcsec$^{{-2}}$'.format(glim, mu))
+            plt.axvline(mu, color=color, lw=0.5, ls='--')
+    
+    plt.legend(fontsize='x-small', loc=2)
+    plt.xlabel('$\mu$ [mag arsec$^{-2}$]')
+    plt.ylabel('Number')
+    
+    plt.tight_layout()
+    plt.savefig('../plots/sb_glims_halo.{:d}_stream.{:04d}_level.{:d}.png'.format(hid, to_plot[i], level))
+
+def demonstrate_sb(hid=523889, lowmass=True, i0=8980, level=8):
+    """"""
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    
+    pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, i0), 'rb'))
+    print(pkl.keys())
+    
+    wangle = 180*u.deg
+    
+    m0 = -48.60
+    glims = np.arange(22,27.1,1)
+    
+    NSIDE = int(2**level)
+    da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcsec**2)
+    
+    plt.close()
+    fig, ax = plt.subplots(2,3,figsize=(12,6), sharex='col', sharey='col')
+    
+    for i, glim in enumerate([22,27]):
+        ind_lim = pkl['g']<glim
+        cg = pkl['cg'][ind_lim]
+        print(np.sum(ind_lim), np.shape(cg.l))
+        
+        plt.sca(ax[i][0])
+        plt.scatter(-cg.l.wrap_at(wangle), cg.b, s=5*pkl['g'][ind_lim]**-1, color='k', ec='none', alpha=0.2)
+        
+        plt.ylabel('g < {:.0f} mag\nb [deg]'.format(glim))
+        plt.gca().set_aspect('equal')
+        
+        # surface brightness
+        flux = 10**(-(pkl['g'][ind_lim] - m0)/2.5)
+        ind_pix = hp.ang2pix(NSIDE, cg.l.deg, cg.b.deg, nest=False, lonlat=True)
+        
+        flux_tot = np.zeros(hp.nside2npix(NSIDE))
+        
+        for e, ind in enumerate(ind_pix):
+            flux_tot[ind] += flux[e]
+        
+        s = -2.5*np.log10(flux_tot/da.to(u.arcsec**2).value) + m0
+        ind_finite = np.isfinite(s)
+        
+        area = np.sum(ind_finite) * da.to(u.arcsec**2)
+        mu = -2.5*np.log10(np.sum(flux_tot[ind_finite])/area.to(u.arcsec**2).value) + m0
+        
+        
+        plt.sca(ax[i][1])
+        plt.axis('off')
+        hp.mollview(s, nest=False, fig=fig, sub=232+i*3, cmap='Blues_r', cbar=False, badcolor='w', title='', min=28, max=42)
+        hp.visufunc.graticule(dpar=30, dmer=60)
+        
+        color = 'k'
+        
+        plt.sca(ax[i][2])
+        plt.hist(s[ind_finite], bins=50, log=True, density=False, histtype='step', color=color, label='')
+        plt.axvline(mu, color=color, lw=0.5, ls='--', label='$\mu_{{tot}}$ = {:.1f} mag arcsec$^{{-2}}$'.format(mu))
+        plt.legend(fontsize='xx-small')
+        plt.ylabel('Number')
+        
+        if i==0:
+            plt.sca(ax[1][2])
+            plt.hist(s[ind_finite], bins=50, log=True, density=False, histtype='step', color=color, label='', alpha=0.4)
+    
+    plt.sca(ax[1][0])
+    plt.xlabel('l [deg]')
+    
+    plt.sca(ax[1][2])
+    plt.xlabel('$\mu$ [mag arcsec$^{-2}$]')
+    
+    plt.tight_layout()
+    plt.savefig('../plots/sb_demonstration_level.{:d}.png'.format(level))
+
+def get_sb(hid=523889, lowmass=True, halo=True, test=False, graph=False):
+    """"""
+    t = Table.read('../data/streams_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = np.isfinite(t['l'])
+    
+    to_plot = ind_all[ind_done]
+    Nplot = np.size(to_plot)
+    
+    if test:
+        Nplot = 10
+    
+    #t['mu_6_27.6'] = np.zeros(N) * np.nan * u.mag * u.arcsec**-2
+    #t['mu_8_27.6'] = np.zeros(N) * np.nan * u.mag * u.arcsec**-2
+    #t['mu_10_27.6'] = np.zeros(N) * np.nan * u.mag * u.arcsec**-2
+    #t['mu_6_22.0'] = np.zeros(N) * np.nan * u.mag * u.arcsec**-2
+    #t['mu_8_22.0'] = np.zeros(N) * np.nan * u.mag * u.arcsec**-2
+    #t['mu_10_22.0'] = np.zeros(N) * np.nan * u.mag * u.arcsec**-2
+    
+    # surface brightness setup
+    wangle = 180*u.deg
+    m0 = -48.60
+    
+    glims = np.array([22, 27.6])
+    levels = np.array([6,7,8,9,10], dtype=int)
+    
+    for level in levels:
+        t['mu_{:d}'.format(level)] = np.zeros(N) * np.nan * u.mag * u.arcsec**-2
+    
+    #if graph:
+        #pp = PdfPages('../plots/rgal_streams.pdf')
+    
+    for i in range(Nplot):
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        cg = pkl['cg']
+        #cgal = cg.transform_to(coord.Galactocentric())
+        
+        # calculate surface brightness
+        #for glim in glims:
+            #ind_lim = pkl['g']<glim
+            #cg = pkl['cg'][ind_lim]
+            
+        for level in levels:
+            NSIDE = int(2**level)
+            da = (hp.nside2pixarea(NSIDE, degrees=True)*u.deg**2).to(u.arcsec**2)
+            
+            #flux = 10**(-(pkl['g'][ind_lim] - m0)/2.5)
+            flux = 10**(-(pkl['g'] - m0)/2.5)
+            ind_pix = hp.ang2pix(NSIDE, cg.l.deg, cg.b.deg, nest=False, lonlat=True)
+            
+            flux_tot = np.zeros(hp.nside2npix(NSIDE))
+            
+            for e, ind in enumerate(ind_pix):
+                flux_tot[ind] += flux[e]
+            
+            #s = -2.5*np.log10(flux_tot/da.to(u.arcsec**2).value) + m0
+            #ind_finite = np.isfinite(s)
+            ind_finite = flux_tot>0
+            area = np.sum(ind_finite) * da.to(u.arcsec**2)
+            mu = -2.5*np.log10(np.sum(flux_tot[ind_finite])/area.to(u.arcsec**2).value) + m0
+            
+            #t['mu_{:d}_{:.1f}'.format(level, glim)][to_plot[i]] = mu
+            t['mu_{:d}'.format(level)][to_plot[i]] = mu
+        
+        #if graph:
+            #plt.close()
+            #plt.figure(figsize=(10,6))
+        
+            #plt.hist(rgal, bins=50, histtype='step', lw=2, label='Stream {:d}'.format(to_plot[i]))
+            #plt.axvline(np.median(rgal), lw=1.5, color='r', label='Median: {:.2f} kpc'.format(np.median(rgal)))
+            #plt.axvline(np.percentile(rgal, 25), lw=1.5, color='r', ls=':', label='IQR: {:.2f} kpc'.format(np.percentile(rgal, 75) - np.percentile(rgal, 25)))
+            #plt.axvline(np.percentile(rgal, 75), lw=1.5, color='r', ls=':', label='')
+            
+            #plt.legend(fontsize='small')
+            #plt.xlabel('R$_{Gal}$ [kpc]')
+            #plt.ylabel('Number')
+            
+            #plt.tight_layout()
+            #pp.savefig()
+    
+    #if graph:
+        #pp.close()
+    
+    t.pprint()
+    t.write('../data/streams_sb_halo.{:d}_lowmass.{:d}.fits'.format(hid, lowmass), overwrite=True)
 
 
 
