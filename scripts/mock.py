@@ -829,7 +829,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
             to_run = [to_run[i0],]
     
     print(np.size(to_run))
-    #to_run = to_run[::-1]
+    to_run = to_run[::-1]
     
     if test:
         to_run = [to_run[0],]
@@ -877,12 +877,11 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
             else:
                 # sample masses
                 masses = sample_kroupa(np.log10(mass_stream))
+                np.random.seed(25)
+                np.random.shuffle(masses)
                 
                 # for accreted clusters, account for stars tidally stripped in the original host galaxy
                 if ~ind_insitu[i]:
-                    np.random.seed(25)
-                    np.random.shuffle(masses)
-                
                     cumsum_mass = np.cumsum(masses)
                     ind_mass = np.argmin(np.abs(cumsum_mass - insitu_mass[i].value))
                     masses = masses[:ind_mass+1]
@@ -890,6 +889,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
                 # subsample mass
                 if f<1:
                     nchoose = int(f * np.size(masses))
+                    np.random.seed(91)
                     masses = np.random.choice(masses, size=nchoose, replace=False)
                 
                 ## sort masses (assuming lowest mass get kicked out first)
