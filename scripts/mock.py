@@ -998,11 +998,12 @@ def get_remaining(hid=523889, lowmass=True, halo=True, target='progenitors'):
     else:
         label = 'gc'
     
-    fout = glob.glob('../data/streams/halo.{:d}_{:s}*'.format(hid, label))
+    fout = glob.glob('../data/streams/halo.{:d}_{:s}.1.00*'.format(hid, label))
     print(len(fout), len(to_run))
     
     ind_remaining = np.ones(N, dtype=bool)
-    ind_remaining[~ind_halo] = 0
+    if halo:
+        ind_remaining[~ind_halo] = 0
     
     for f in fout:
         i = int(f.split('.')[-2])
