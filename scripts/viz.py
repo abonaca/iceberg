@@ -218,7 +218,7 @@ def estimate_morphology(hid=523889, lowmass=True, target='progenitors'):
     t.write('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass), overwrite=True)
 
 def get_streams(hid=523889, lowmass=True, target='progenitors'):
-    """"""
+    """Return indices of clusters with stream-like tidal debris"""
     t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     
     x_ = np.sqrt(t['med_l']**2 + t['med_b']**2)
@@ -227,12 +227,14 @@ def get_streams(hid=523889, lowmass=True, target='progenitors'):
     
     return ind_stream
 
+
 ##################
 # Visualizations #
 ##################
 
 def rgal_hist(hid=523889, lowmass=True, target='progenitors'):
-    """"""
+    """Plot histogram of galactocentric radii for the resulting tidal debris, and a subset with stream-like morphologies"""
+    
     t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
     ind_all = np.arange(N, dtype=int)
@@ -253,8 +255,8 @@ def rgal_hist(hid=523889, lowmass=True, target='progenitors'):
     #plt.hist(t['rgal_25'][ind_done], bins=rbins, histtype='stepfilled', color=mpl.cm.Blues(0.5), alpha=0.2, label='25%')
     #plt.hist(t['rgal_75'][ind_done], bins=rbins, histtype='stepfilled', color=mpl.cm.Blues(0.9), alpha=0.2, label='75%')
     #plt.hist(t['rgal_stream'][ind_done], bins=rbins, histtype='step', color=mpl.cm.Blues(0.7), lw=2, label='Median')
-    plt.hist(t['rgal_stream'][ind_done], bins=rbins, histtype='step', color='tab:blue', lw=2, label='All debris')
-    plt.hist(t['rgal_stream'][ind_done & ind_stream], bins=rbins, histtype='step', color='tab:red', lw=2, label='Streams')
+    plt.hist(t['rgal_stream'][ind_done], bins=rbins, histtype='step', color='tab:blue', lw=2, label='All debris ({:d})'.format(np.sum(ind_done)))
+    plt.hist(t['rgal_stream'][ind_done & ind_stream], bins=rbins, histtype='step', color='tab:red', lw=2, label='Streams ({:d})'.format(np.sum(ind_done & ind_stream)))
     
     plt.gca().set_xscale('log')
     plt.gca().set_yscale('log')
@@ -391,7 +393,7 @@ def plot_morphology(hid=523889, lowmass=True, target='progenitors', Nplot=100, l
     
     plt.savefig('../plots/streaminess_all_{:d}.png'.format(Nplot))
 
-def plot_distant(hid=523889, lowmass=True, target='progenitors', test=False, rgal=10):
+def plot_distant(hid=523889, lowmass=True, target='progenitors', test=False, rgal=15):
     """Diagnostic plot showing simulated stream particles (downsampled for more massive streams)"""
     t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
@@ -446,11 +448,55 @@ def plot_distant(hid=523889, lowmass=True, target='progenitors', test=False, rga
     plt.tight_layout()
     plt.savefig('../plots/sdss_lsst_rgal.{:.0f}.png'.format(rgal))
 
+def streams_edgeon(hid=523889, lowmass=True, target='progenitors', test=False, rgal=15):
+    """"""
+    
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    N = len(t)
+    
+    ind_all = np.arange(N, dtype=int)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target)
+    ind_dist = t['rgal_stream']>rgal
+    
+    x_ = np.sqrt(t['med_l']**2 + t['med_b']**2)
+    y_ = np.abs(t['lz']/t['l'])
+    ind_stream = (x_>2) & (y_<0.95)
+    
+    to_plot = ind_all[ind_done & ind_dist & ind_stream]
+    Nplot = np.size(to_plot)
+    
+    plt.close()
+    plt.figure()
+    
+    plt.xlabel('X [kpc]')
+    plt.ylabel('Z [kpc]')
+    
+    for i in range(Nplot):
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        cg = pkl['cg']
+        cgal = cg.transform_to(coord.Galactocentric())
+        
+        #ind_sdss = pkl['g']<22.5
+        ind_lsst = pkl['g']<27.5
+        
+        color = 'k'
+        
+        if np.sum(ind_lsst):
+            plt.plot(cgal.x[ind_lsst], cgal.z[ind_lsst], 'ko', mew=0, ms=1, alpha=0.051)
+            #plt.plot(cg.l.wrap_at(180*u.deg).radian[ind_lsst], cg.b.radian[ind_lsst], 'o', color=color, mew=0, ms=1, alpha=0.1)
+    
+    plt.xlim(-70,70)
+    plt.ylim(-70,70)
+    plt.gca().set_aspect('equal')
+    plt.tight_layout()
+    
+
+
 ############
 # Analysis #
 ############
 
-def distant_streams(hid=523889, lowmass=True, target='progenitors', dist=10):
+def distant_streams(hid=523889, lowmass=True, target='progenitors', dist=15):
     """"""
     
     t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))

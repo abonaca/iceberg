@@ -806,14 +806,15 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
     
     # integration set up
     dt = -1*u.Myr
+    dt = -0.1*u.Myr
     
     # setup how stars get released from the progenitor
     state = np.random.RandomState(seed=291)
     df = ms.FardalStreamDF(random_state=state)
     gen = ms.MockStreamGenerator(df, ham)
     
+    ind_all = np.arange(N, dtype=int)
     if halo:
-        ind_all = np.arange(N, dtype=int)
         if target=='progenitors':
             ind_halo = get_halo(t)
         else:
@@ -832,7 +833,8 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
     to_run = to_run[::-1]
     
     if test:
-        to_run = [to_run[0],]
+        #to_run = [to_run[0],]
+        to_run = [ind_all[i0],]
     
     for i in to_run[istart::nskip]:
         try:
@@ -1010,7 +1012,7 @@ def get_remaining(hid=523889, lowmass=True, halo=True, target='progenitors'):
         ind_remaining[i] = 0
     
     print(np.sum(ind_remaining), len(to_run)-len(fout))
-    print(ind_all[ind_remaining])
+    print(ind_all[ind_remaining].tolist())
 
     np.save('../data/to_run_{:s}.npy'.format(target), ind_all[ind_remaining])
     
