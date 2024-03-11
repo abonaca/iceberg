@@ -769,7 +769,7 @@ def define_halo(hid=523889, lowmass=True):
     plt.tight_layout()
 
 
-def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, target='progenitors', verbose=False, halo=True, istart=0, nskip=1, remaining=False):
+def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowmass=True, target='progenitors', verbose=False, halo=True, istart=0, nskip=1, remaining=False):
     """Create a mock stream from a disrupted globular cluster"""
     
     if target=='progenitors':
@@ -807,6 +807,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
     # integration set up
     dt = -1*u.Myr
     dt = -0.1*u.Myr
+    dt = -0.5*u.Myr
     
     # setup how stars get released from the progenitor
     state = np.random.RandomState(seed=291)
@@ -830,7 +831,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
             to_run = [to_run[i0],]
     
     print(np.size(to_run))
-    to_run = to_run[::-1]
+    #to_run = to_run[::-1]
     
     if test:
         #to_run = [to_run[0],]
@@ -854,20 +855,10 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
             age = np.around(t['t_form'][i], decimals=1)
             feh = np.around(t['FeH'][i], decimals=1)
             iso_lsst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='lsst')
-            #iso_jwst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='jwst')
             
             # total mass of stream stars
             mass_stream = prog_mass[i].value
             
-            ## for accreted clusters, account for stars tidally stripped in the original host galaxy
-            #if ~ind_insitu[i]:
-                ## length of time spent in the progenitor galaxy
-                #t_prog = t['t_form'][i] - t['t_accrete'][i]
-                #f_dyn = 1 - 0.06*(t_prog)
-                
-                ## mass at accretion
-                #mass_stream = (1 - f_dyn) * prog_mass[i].value
-                
             # for surviving clusters, only simulate released stars
             if t_end[i]<0:
                 # remaining mass
@@ -889,7 +880,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
                     masses = masses[:ind_mass+1]
                 
                 # subsample mass
-                if f<1:
+                if (f<1) & (f>0):
                     nchoose = int(f * np.size(masses))
                     np.random.seed(91)
                     masses = np.random.choice(masses, size=nchoose, replace=False)
@@ -906,37 +897,47 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
                 if np.size(masses)%2:
                     masses = masses[:-1]
                 
-                #print(np.size(masses), np.min(masses), np.max(masses))
-                #return 0
-                
                 nstar = np.size(masses)
-                ntail = int(nstar/2)
                 
-                # uniformly release the exact number of stars
-                navg = ntail//n_disrupting
-                if navg>=1:
-                    nrelease = np.ones(n_disrupting, dtype=int) * navg
-                    nextra = int(ntail - np.sum(nrelease))
-                    nrelease[:nextra] += 1
+                if f<0:
+                    ntail = min(Nmax, n_steps+1)
+                    nrelease = np.zeros(n_steps+1, dtype=int)
+                    navg = n_steps//ntail
+                    nrelease[::navg] = 1
+                    ntail = np.sum(nrelease)
+                    
+                    masses = np.partition(masses, -2*ntail)[-2*ntail:]
+                    release_every = navg
+                    nrelease = 1
+                
                 else:
-                    # fewer particles than time steps
-                    nrelease = np.zeros(n_disrupting, dtype=int)
-                    release_avg = int(np.ceil(n_disrupting/ntail))
-                    nrelease[::release_avg] = 1
+                    # uniformly release the exact number of stars
+                    release_every = 1
+                    ntail = int(nstar/2)
+                    navg = ntail//n_disrupting
+                    if navg>=1:
+                        nrelease = np.ones(n_disrupting, dtype=int) * navg
+                        nextra = int(ntail - np.sum(nrelease))
+                        nrelease[:nextra] += 1
+                    else:
+                        # fewer particles than time steps
+                        nrelease = np.zeros(n_disrupting, dtype=int)
+                        release_avg = int(np.ceil(n_disrupting/ntail))
+                        nrelease[::release_avg] = 1
 
-                    nextra = int(ntail - np.sum(nrelease))
-                    # get integer locations rather than a boolean array, so that we can slice it and assign a new value
-                    ind_empty = np.where(nrelease==0)[0]
-                    nrelease[ind_empty[:nextra]] = 1
+                        nextra = int(ntail - np.sum(nrelease))
+                        # get integer locations rather than a boolean array, so that we can slice it and assign a new value
+                        ind_empty = np.where(nrelease==0)[0]
+                        nrelease[ind_empty[:nextra]] = 1
+                    
+                    # add extra steps
+                    nrelease = np.concatenate([nrelease, np.zeros(n_steps - n_disrupting + 1, dtype=int)])
                 
-                # add extra steps
-                nrelease = np.concatenate([nrelease, np.zeros(n_steps - n_disrupting + 1, dtype=int)])
-                #print(nrelease)
                 if verbose: print('Ntail: {:d}, Nrelease: {:d}'.format(ntail, np.sum(nrelease)))
 
                 # create mock stream
                 t1 = time.time()
-                stream_, prog = gen.run(w0[i], prog_mass[i], dt=dt, n_steps=n_steps, n_particles=nrelease)
+                stream_, prog = gen.run(w0[i], prog_mass[i], dt=dt, n_steps=n_steps, n_particles=nrelease, release_every=release_every)
                 t2 = time.time()
                 if verbose: print('Runtime: {:g}'.format(t2-t1))
                 
@@ -950,16 +951,14 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, lowmass=True, ta
                 order = 1
                 interp_g = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_g'], k=order, bbox=bbox)
                 interp_r = InterpolatedUnivariateSpline(iso_lsst['initial_mass'], iso_lsst['LSST_r'], k=order, bbox=bbox)
-                #interp_f200w = InterpolatedUnivariateSpline(iso_jwst['initial_mass'], iso_jwst['F200W'], k=order, bbox=bbox)
                 
                 # photometry (no uncertainties)
                 r = interp_r(masses) + dm
                 g = interp_g(masses) + dm
-                #f200w = interp_f200w(masses) + dm
                 
                 #############
                 # save stream
-                outdict = dict(cg=cg, mass=masses, g=g, r=r) #, f200w=f200w)
+                outdict = dict(cg=cg, mass=masses, g=g, r=r)
                 pickle.dump(outdict, open('../data/streams/halo.{:d}_{:s}.{:.2f}.{:04d}.pkl'.format(hid, label, f, i), 'wb'))
                 
                 if graph:

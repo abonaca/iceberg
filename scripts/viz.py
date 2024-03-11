@@ -512,5 +512,9 @@ def distant_streams(hid=523889, lowmass=True, target='progenitors', dist=15):
     
     print(np.sum(ind_done), np.sum(ind_done & ind_stream), np.sum(ind_done & ind_distant), np.sum(ind_done & ind_distant & ind_stream))
 
-
+def info(hid=523889, lowmass=True, target='progenitors', dist=15):
+    """"""
+    
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    print(t.colnames)
 
