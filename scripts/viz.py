@@ -42,7 +42,7 @@ coord.galactocentric_frame_defaults.set('v4.0')
 gc_frame = coord.Galactocentric()
 
 
-def get_done(hid=523889, lowmass=True, target='progenitors', quick=False, verbose=False):
+def get_done(hid=523889, lowmass=True, target='progenitors', verbose=False, fstar=-1):
     """Return indices of fully simulated streams"""
     t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
@@ -56,12 +56,7 @@ def get_done(hid=523889, lowmass=True, target='progenitors', quick=False, verbos
     else:
         label = 'gc'
     
-    if quick:
-        f = -1
-    else:
-        f = 1
-    
-    fout = glob.glob('../data/streams/halo.{:d}_{:s}.{:.2f}*'.format(hid, label, f))
+    fout = glob.glob('../data/streams/halo.{:d}_{:s}.{:.2f}*'.format(hid, label, fstar))
     
     for f in fout:
         i = int(f.split('.')[-2])
@@ -71,13 +66,13 @@ def get_done(hid=523889, lowmass=True, target='progenitors', quick=False, verbos
     
     return ind_done
 
-def plot_streams(hid=523889, lowmass=True, target='progenitors', test=False):
+def plot_streams(hid=523889, lowmass=True, target='progenitors', test=False, fstar=-1):
     """Diagnostic plot showing simulated stream particles (downsampled for more massive streams)"""
     t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
     
     ind_all = np.arange(N, dtype=int)
-    ind_done = get_done(hid=hid, lowmass=lowmass, target=target)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
     
     to_plot = ind_all[ind_done]
     Nplot = np.size(to_plot)
@@ -90,7 +85,7 @@ def plot_streams(hid=523889, lowmass=True, target='progenitors', test=False):
     ax = fig.add_subplot(111, projection='mollweide')
     
     for i in range(Nplot):
-        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:.2f}.{:04d}.pkl'.format(hid, fstar, to_plot[i]), 'rb'))
         cg = pkl['cg']
         
         if np.size(cg.l)>1000:
@@ -99,19 +94,20 @@ def plot_streams(hid=523889, lowmass=True, target='progenitors', test=False):
             plt.plot(cg.l.wrap_at(180*u.deg).radian, cg.b.radian, 'o', mew=0, ms=1, alpha=0.1)
     
     plt.tight_layout()
+    plt.savefig('../plots/streams_sky_halo.{:d}_fstar.{:.2f}.png'.format(hid, fstar))
 
 
 #############
 # Summaries #
 #############
 
-def estimate_rgal(hid=523889, lowmass=True, target='progenitors'):
+def estimate_rgal(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     """Calculate Galactocentric radii of stellar streams and store them in the output summary table"""
     t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
     
     ind_all = np.arange(N, dtype=int)
-    ind_done = get_done(hid=hid, lowmass=lowmass, target=target)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
     to_plot = ind_all[ind_done]
     Nplot = np.size(to_plot)
     
@@ -120,7 +116,7 @@ def estimate_rgal(hid=523889, lowmass=True, target='progenitors'):
     t['rgal_75'] = np.zeros(N) * np.nan * u.kpc
     
     for i in range(Nplot):
-        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:.2f}.{:04d}.pkl'.format(hid, fstar, to_plot[i]), 'rb'))
         cg = pkl['cg']
         cgal = cg.transform_to(coord.Galactocentric())
         
@@ -131,15 +127,15 @@ def estimate_rgal(hid=523889, lowmass=True, target='progenitors'):
         t['rgal_75'][to_plot[i]] = np.percentile(rgal, 75)
     
     t.pprint()
-    t.write('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass), overwrite=True)
+    t.write('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar), overwrite=True)
 
-def estimate_mu(hid=523889, lowmass=True, target='progenitors'):
+def estimate_mu(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     """Calculate total surface brightness of stellar streams assuming different healpix binning levels and store them in the output summary table"""
-    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
     N = len(t)
     
     ind_all = np.arange(N, dtype=int)
-    ind_done = get_done(hid=hid, lowmass=lowmass, target=target)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
     to_plot = ind_all[ind_done]
     Nplot = np.size(to_plot)
     
@@ -152,7 +148,7 @@ def estimate_mu(hid=523889, lowmass=True, target='progenitors'):
         t['mu_{:d}'.format(level)] = np.zeros(N) * np.nan * u.mag * u.arcsec**-2
     
     for i in range(Nplot):
-        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:.2f}.{:04d}.pkl'.format(hid, fstar, to_plot[i]), 'rb'))
         cg = pkl['cg']
         
         for level in levels:
@@ -174,16 +170,16 @@ def estimate_mu(hid=523889, lowmass=True, target='progenitors'):
             t['mu_{:d}'.format(level)][to_plot[i]] = mu
     
     t.pprint()
-    t.write('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass), overwrite=True)
+    t.write('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar), overwrite=True)
 
-def estimate_morphology(hid=523889, lowmass=True, target='progenitors'):
+def estimate_morphology(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     """Calculate median sky positions and orbital properties to determine whether tidal debris is stream-like or phase-mixed"""
     
-    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
     N = len(t)
     
     ind_all = np.arange(N, dtype=int)
-    ind_done = get_done(hid=hid, lowmass=lowmass, target=target)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
     to_plot = ind_all[ind_done]
     Nplot = np.size(to_plot)
     
@@ -198,7 +194,7 @@ def estimate_morphology(hid=523889, lowmass=True, target='progenitors'):
     t['l'] = np.ones(N) * u.kpc**2*u.Myr**-1
     
     for i in range(Nplot):
-        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:.2f}.{:04d}.pkl'.format(hid, fstar, to_plot[i]), 'rb'))
         cg = pkl['cg']
         cgal = cg.transform_to(coord.Galactocentric())
         
@@ -220,11 +216,11 @@ def estimate_morphology(hid=523889, lowmass=True, target='progenitors'):
         t['l'][to_plot[i]] = np.median(l.value)
     
     t.pprint()
-    t.write('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass), overwrite=True)
+    t.write('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar), overwrite=True)
 
-def get_streams(hid=523889, lowmass=True, target='progenitors'):
+def get_streams(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     """Return indices of clusters with stream-like tidal debris"""
-    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
     
     x_ = np.sqrt(t['med_l']**2 + t['med_b']**2)
     y_ = np.abs(t['lz']/t['l'])
@@ -237,14 +233,14 @@ def get_streams(hid=523889, lowmass=True, target='progenitors'):
 # Visualizations #
 ##################
 
-def rgal_hist(hid=523889, lowmass=True, target='progenitors'):
+def rgal_hist(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     """Plot histogram of galactocentric radii for the resulting tidal debris, and a subset with stream-like morphologies"""
     
-    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
     N = len(t)
     ind_all = np.arange(N, dtype=int)
-    ind_done = get_done(hid=hid, lowmass=lowmass, target=target)
-    ind_stream = get_streams(hid=hid, lowmass=lowmass, target=target)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
+    ind_stream = get_streams(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
     
     to_plot = ind_all[ind_done]
     Nplot = np.size(to_plot)
@@ -271,7 +267,7 @@ def rgal_hist(hid=523889, lowmass=True, target='progenitors'):
     plt.ylabel('Number')
     
     plt.tight_layout()
-    plt.savefig('../plots/rgal_total_all.png')
+    plt.savefig('../plots/rgal_total_fstar.{:.2f}.png'.format(fstar))
 
 def rgal_mu(hid=523889, lowmass=True, target='progenitors', level=9):
     """"""
