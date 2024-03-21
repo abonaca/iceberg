@@ -42,7 +42,7 @@ coord.galactocentric_frame_defaults.set('v4.0')
 gc_frame = coord.Galactocentric()
 
 
-def get_done(hid=523889, lowmass=True, target='progenitors', verbose=False):
+def get_done(hid=523889, lowmass=True, target='progenitors', quick=False, verbose=False):
     """Return indices of fully simulated streams"""
     t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
@@ -56,7 +56,12 @@ def get_done(hid=523889, lowmass=True, target='progenitors', verbose=False):
     else:
         label = 'gc'
     
-    fout = glob.glob('../data/streams/halo.{:d}_{:s}.1.00*'.format(hid, label))
+    if quick:
+        f = -1
+    else:
+        f = 1
+    
+    fout = glob.glob('../data/streams/halo.{:d}_{:s}.{:.2f}*'.format(hid, label, f))
     
     for f in fout:
         i = int(f.split('.')[-2])
