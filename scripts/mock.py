@@ -898,13 +898,21 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowma
                     masses = masses[:-1]
                 
                 nstar = np.size(masses)
-                
+
                 if f<0:
+                    Nmax = min(Nmax, nstar//2)
                     ntail = min(Nmax, n_steps+1)
                     nrelease = np.zeros(n_steps+1, dtype=int)
                     navg = n_steps//ntail
                     nrelease[::navg] = 1
                     ntail = np.sum(nrelease)
+
+                    # make sure integer division worked out
+                    if ntail>Nmax:
+                        navg += 1
+                        nrelease = np.zeros(n_steps+1, dtype=int)
+                        nrelease[::navg] = 1
+                        ntail = np.sum(nrelease)
                     
                     masses = np.partition(masses, -2*ntail)[-2*ntail:]
                     release_every = navg
@@ -982,7 +990,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowma
             fout_failed.write('{:d}\n'.format(i))
             fout_failed.close()
 
-def get_remaining(hid=523889, lowmass=True, halo=True, target='progenitors'):
+def get_remaining(hid=523889, lowmass=True, halo=True, target='progenitors', fstar=1):
     """"""
     t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
@@ -999,7 +1007,7 @@ def get_remaining(hid=523889, lowmass=True, halo=True, target='progenitors'):
     else:
         label = 'gc'
     
-    fout = glob.glob('../data/streams/halo.{:d}_{:s}.1.00*'.format(hid, label))
+    fout = glob.glob('../data/streams/halo.{:d}_{:s}.{:.2f}*'.format(hid, label, fstar))
     print(len(fout), len(to_run))
     
     ind_remaining = np.ones(N, dtype=bool)

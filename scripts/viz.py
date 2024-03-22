@@ -188,8 +188,8 @@ def estimate_morphology(hid=523889, lowmass=True, target='progenitors', fstar=-1
     t['med_l'] = np.empty(N) * np.nan * u.deg
     t['med_b'] = np.empty(N) * np.nan * u.deg
     
-    t['detot'] = np.ones(N) * u.kpc**2*u.Myr**-2
-    t['etot'] = np.ones(N) * u.kpc**2*u.Myr**-2
+    t['de'] = np.ones(N) * u.kpc**2*u.Myr**-2
+    t['e'] = np.ones(N) * u.kpc**2*u.Myr**-2
     t['dl'] = np.ones(N) * u.kpc**2*u.Myr**-1
     t['l'] = np.ones(N) * u.kpc**2*u.Myr**-1
     
@@ -210,8 +210,8 @@ def estimate_morphology(hid=523889, lowmass=True, target='progenitors', fstar=-1
         l = np.linalg.norm(w.angular_momentum(), axis=0)
         #l = w.angular_momentum()[2]
         
-        t['detot'][to_plot[i]] = np.std(etot.value)
-        t['etot'][to_plot[i]] = np.median(etot.value)
+        t['de'][to_plot[i]] = np.std(etot.value)
+        t['e'][to_plot[i]] = np.median(etot.value)
         t['dl'][to_plot[i]] = np.std(l.value)
         t['l'][to_plot[i]] = np.median(l.value)
     
@@ -518,4 +518,42 @@ def info(hid=523889, lowmass=True, target='progenitors', dist=15):
     
     t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     print(t.colnames)
+
+
+def failed_streams(hid=523889, lowmass=True, target='progenitors', fstar=-1):
+    """Look into which streams failed to run"""
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
+    
+    print(t.colnames)
+    #print(np.sum(~ind_done))
+    
+    plt.close()
+    plt.figure()
+    
+    plt.plot(t['lz'], t['etot'], 'ko')
+    plt.plot(t['lz'][~ind_done], t['etot'][~ind_done], 'ro')
+    
+    #plt.gca().set_xscale('log')
+    #plt.gca().set_yscale('log')
+    
+    plt.tight_layout()
+
+def done(hid=523889, lowmass=True, target='progenitors', fstar=-1):
+    """"""
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=-1)
+    ind_stream = get_streams(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
+    
+    istream = ind_all[ind_stream]
+    idone = ind_all[ind_done]
+    
+    imissing = np.array([0 if x in idone else 1 for x in istream], dtype=bool)
+    print('Missing:', istream[imissing])
+    #print(istream)
+    #print(imissing)
 
