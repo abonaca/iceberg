@@ -248,7 +248,7 @@ def rgal_hist(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     print('max rgal:', np.max(t['rgal_stream'][ind_done]))
     print('50, 90 rgal:', np.percentile(np.array(t['rgal_stream'][ind_done]), [50,90]))
     
-    rbins = np.logspace(-0.8,2.1,100)
+    rbins = np.logspace(-0.8,3.1,100)
     
     plt.close()
     plt.figure(figsize=(10,6))
@@ -490,7 +490,6 @@ def streams_edgeon(hid=523889, lowmass=True, target='progenitors', test=False, r
     plt.ylim(-70,70)
     plt.gca().set_aspect('equal')
     plt.tight_layout()
-    
 
 
 ############
