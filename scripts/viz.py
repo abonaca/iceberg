@@ -310,7 +310,7 @@ def rgal_mu(hid=523889, lowmass=True, target='progenitors', level=9):
     plt.tight_layout()
     plt.savefig('../plots/rgal_mu_all_{:d}.png'.format(level))
 
-def plot_morphology(hid=523889, lowmass=True, target='progenitors', Nplot=100, log=True):
+def plot_morphology(hid=523889, lowmass=True, target='progenitors', Nplot=100, log=True, fstar=-1):
     """"""
     
     t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
@@ -383,16 +383,22 @@ def plot_morphology(hid=523889, lowmass=True, target='progenitors', Nplot=100, l
     for i in range(Nplot):
         plt.axes([xf[i]-0.5*aw, yf[i]-0.5*ah, aw, ah], projection='mollweide')
         
-        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, to_plot[i]), 'rb'))
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:.2f}.{:04d}.pkl'.format(hid, fstar, to_plot[i]), 'rb'))
         cg = pkl['cg']
         
-        if np.size(cg.l)>10000:
-            plt.plot(cg.l.wrap_at(180*u.deg).radian[::2], cg.b.radian[::2], 'ko', ms=0.5, mew=0, alpha=0.2)
+        if np.size(cg.l)>500:
+            plt.plot(cg.l.wrap_at(180*u.deg).radian, cg.b.radian, 'ko', ms=1, mew=0, alpha=0.2)
         else:
-            plt.plot(cg.l.wrap_at(180*u.deg).radian, cg.b.radian, 'ko', ms=0.5, mew=0, alpha=0.2)
+            plt.plot(cg.l.wrap_at(180*u.deg).radian, cg.b.radian, 'ko', ms=1, mew=0, alpha=0.8)
+        
+        # if fstar==1:
+        #     if np.size(cg.l)>10000:
+        #         plt.plot(cg.l.wrap_at(180*u.deg).radian[::2], cg.b.radian[::2], 'ko', ms=0.5, mew=0, alpha=0.2)
+        #     else:
+        #         plt.plot(cg.l.wrap_at(180*u.deg).radian, cg.b.radian, 'ko', ms=0.5, mew=0, alpha=0.2)
         plt.axis('off')
     
-    plt.savefig('../plots/streaminess_all_{:d}.png'.format(Nplot))
+    plt.savefig('../plots/streaminess_all_{:.2f}_{:d}.png'.format(fstar, Nplot))
 
 def plot_distant(hid=523889, lowmass=True, target='progenitors', test=False, rgal=15):
     """Diagnostic plot showing simulated stream particles (downsampled for more massive streams)"""

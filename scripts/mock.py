@@ -34,15 +34,32 @@ ham_mw = gp.Hamiltonian(gp.MilkyWayPotential())
 #totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
 #ham = gp.Hamiltonian(totalPot)
 
-# TNG best-fit potential
-bulgePot = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
+# TNG best-fit potential 523889
+bulgePot1 = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
 # issues integrating orbits in a disk potential with vanishing b
 #diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.006*u.kpc, units=galactic)
-diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.28*u.kpc, units=galactic)
-haloPot = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
+diskPot1 = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.28*u.kpc, units=galactic)
+haloPot1 = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
 
-totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
-ham = gp.Hamiltonian(totalPot)
+totalPot1 = gp.CCompositePotential(component1=bulgePot1, component2=diskPot1, component3=haloPot1)
+ham1 = gp.Hamiltonian(totalPot1)
+
+# TNG best-fit potential 524506
+bulgePot2 = gp.HernquistPotential(10**10.24*u.Msun, 7.07*u.kpc, units=galactic)
+diskPot2 = gp.MiyamotoNagaiPotential(10**10.55*u.Msun, 0.5*u.kpc, 0.36*u.kpc, units=galactic)
+haloPot2 = gp.NFWPotential(10**11.65*u.Msun, 10.61*u.kpc, c=0.89, units=galactic)
+
+totalPot2 = gp.CCompositePotential(component1=bulgePot2, component2=diskPot2, component3=haloPot2)
+ham2 = gp.Hamiltonian(totalPot2)
+
+# TNG best-fit potential 545703
+bulgePot3 = gp.HernquistPotential(10**10.38*u.Msun, 8.7*u.kpc, units=galactic)
+diskPot3 = gp.MiyamotoNagaiPotential(10**10.34*u.Msun, 0.18*u.kpc, 0.58*u.kpc, units=galactic)
+haloPot3 = gp.NFWPotential(10**11.51*u.Msun, 8.41*u.kpc, c=0.942, units=galactic)
+
+totalPot3 = gp.CCompositePotential(component1=bulgePot3, component2=diskPot3, component3=haloPot3)
+ham3 = gp.Hamiltonian(totalPot3)
+
 
 coord.galactocentric_frame_defaults.set('v4.0')
 gc_frame = coord.Galactocentric()
@@ -447,7 +464,29 @@ def stream_number(hid=0, lowmass=True):
         ind = (t['haloID']==hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
         print('Halo: {:d}, streams: {:d}, disrupted in the main halo: {:d}'.format(hid, np.sum(t['haloID']==hid), np.sum(ind)))
 
-def all_orbits(hid=0, lowmass=True, test=False, disrupt=True):
+def stream_sample(hid=523889, lowmass=True, disrupt=True):
+    """"""
+    if disrupt:
+        label_in = 'disrupt'
+        label = 'progenitors'
+    else:
+        label_in = 'survive'
+        label = 'gcs'
+    
+    # read table
+    if lowmass:
+        t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_{:s}.txt'.format(label_in), format='ascii.commented_header', delimiter=' ')
+    else:
+        t = Table.read('../data/mw_like_4.0_0.5_lambda_{:s}.txt'.format(label_in), format='ascii.commented_header', delimiter=' ')
+    
+    print(np.sum(t['haloID']==hid))
+    
+    ind = (t['haloID']==hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
+    t = t[ind]
+    print(len(t))
+    
+
+def all_orbits(hid=523889, lowmass=True, test=False, disrupt=True):
     """Calculate orbits of all disrupted globular clusters in a halo"""
     
     if disrupt:
@@ -463,7 +502,6 @@ def all_orbits(hid=0, lowmass=True, test=False, disrupt=True):
     else:
         t = Table.read('../data/mw_like_4.0_0.5_lambda_{:s}.txt'.format(label_in), format='ascii.commented_header', delimiter=' ')
     
-    hid = np.unique(t['haloID'])[hid]
     ind = (t['haloID']==hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
     t = t[ind]
     
@@ -779,6 +817,18 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowma
         # surviving cluster
         label = 'gc'
     
+    # switch between halo potentials
+    if hid==523889:
+        ham = ham1
+    elif hid==524506:
+        ham = ham2
+    elif hid==545703:
+        ham = ham3
+    else:
+        ham = ham_mw
+    
+    if verbose:
+        print(ham.potential.parameters)
     
     t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
     N = len(t)
