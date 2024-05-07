@@ -22,21 +22,39 @@ from functools import partial
 import pickle
 import time
 import glob
+import tarfile
+import os
 
 import healpy as hp
 from skimage import io, color
 
 ham_mw = gp.Hamiltonian(gp.MilkyWayPotential())
 
-# TNG best-fit potential
-bulgePot = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
+# TNG best-fit potential 523889
+bulgePot1 = gp.HernquistPotential(10**10.26*u.Msun, 1.05*u.kpc, units=galactic)
 # issues integrating orbits in a disk potential with vanishing b
 #diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.006*u.kpc, units=galactic)
-diskPot = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.28*u.kpc, units=galactic)
-haloPot = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
+diskPot1 = gp.MiyamotoNagaiPotential(10**10.70*u.Msun, 4.20*u.kpc, 0.28*u.kpc, units=galactic)
+haloPot1 = gp.NFWPotential(10**11.57*u.Msun, 11.59*u.kpc, c=0.943, units=galactic)
 
-totalPot = gp.CCompositePotential(component1=bulgePot, component2=diskPot, component3=haloPot)
-ham = gp.Hamiltonian(totalPot)
+totalPot1 = gp.CCompositePotential(component1=bulgePot1, component2=diskPot1, component3=haloPot1)
+ham1 = gp.Hamiltonian(totalPot1)
+
+# TNG best-fit potential 524506
+bulgePot2 = gp.HernquistPotential(10**10.24*u.Msun, 7.07*u.kpc, units=galactic)
+diskPot2 = gp.MiyamotoNagaiPotential(10**10.55*u.Msun, 0.5*u.kpc, 0.36*u.kpc, units=galactic)
+haloPot2 = gp.NFWPotential(10**11.65*u.Msun, 10.61*u.kpc, c=0.89, units=galactic)
+
+totalPot2 = gp.CCompositePotential(component1=bulgePot2, component2=diskPot2, component3=haloPot2)
+ham2 = gp.Hamiltonian(totalPot2)
+
+# TNG best-fit potential 545703
+bulgePot3 = gp.HernquistPotential(10**10.38*u.Msun, 8.7*u.kpc, units=galactic)
+diskPot3 = gp.MiyamotoNagaiPotential(10**10.34*u.Msun, 0.18*u.kpc, 0.58*u.kpc, units=galactic)
+haloPot3 = gp.NFWPotential(10**11.51*u.Msun, 8.41*u.kpc, c=0.942, units=galactic)
+
+totalPot3 = gp.CCompositePotential(component1=bulgePot3, component2=diskPot3, component3=haloPot3)
+ham3 = gp.Hamiltonian(totalPot3)
 
 coord.galactocentric_frame_defaults.set('v4.0')
 gc_frame = coord.Galactocentric()
@@ -84,12 +102,16 @@ def plot_streams(hid=523889, lowmass=True, target='progenitors', test=False, fst
     fig = plt.figure(figsize=(14,7))
     ax = fig.add_subplot(111, projection='mollweide')
     
+    pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:.2f}.{:04d}.pkl'.format(hid, fstar, to_plot[-1]), 'rb'))
+    # print(to_plot[-1])
+    
     for i in range(Nplot):
+        print(i, to_plot[i], Nplot, N)
         pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:.2f}.{:04d}.pkl'.format(hid, fstar, to_plot[i]), 'rb'))
         cg = pkl['cg']
         
         if np.size(cg.l)>1000:
-            plt.plot(cg.l.wrap_at(180*u.deg).radian[::10], cg.b.radian[::10], 'o', mew=0, ms=1, alpha=0.1)
+            plt.plot(cg.l.wrap_at(180*u.deg).radian[::20], cg.b.radian[::20], 'o', mew=0, ms=1, alpha=0.1)
         else:
             plt.plot(cg.l.wrap_at(180*u.deg).radian, cg.b.radian, 'o', mew=0, ms=1, alpha=0.1)
     
@@ -101,9 +123,30 @@ def plot_streams(hid=523889, lowmass=True, target='progenitors', test=False, fst
 # Summaries #
 #############
 
+def save_nstar(hid=523889, lowmass=True, target='progenitors', fstar=-1):
+    """Query stellar streams and store the total number of stars for each in the output summary table"""
+    t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    N = len(t)
+    
+    ind_all = np.arange(N, dtype=int)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
+    to_plot = ind_all[ind_done]
+    Nplot = np.size(to_plot)
+    
+    t['nstar'] = np.zeros(N, dtype=np.int64)
+    
+    for i in range(Nplot):
+        pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:.2f}.{:04d}.pkl'.format(hid, fstar, to_plot[i]), 'rb'))
+        cg = pkl['cg']
+        
+        t['nstar'][to_plot[i]] = np.size(cg.l)
+    
+    t.pprint()
+    t.write('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar), overwrite=True)
+
 def estimate_rgal(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     """Calculate Galactocentric radii of stellar streams and store them in the output summary table"""
-    t = Table.read('../data/stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
     N = len(t)
     
     ind_all = np.arange(N, dtype=int)
@@ -193,6 +236,16 @@ def estimate_morphology(hid=523889, lowmass=True, target='progenitors', fstar=-1
     t['dl'] = np.ones(N) * u.kpc**2*u.Myr**-1
     t['l'] = np.ones(N) * u.kpc**2*u.Myr**-1
     
+    # switch between halo potentials
+    if hid==523889:
+        ham = ham1
+    elif hid==524506:
+        ham = ham2
+    elif hid==545703:
+        ham = ham3
+    else:
+        ham = ham_mw
+    
     for i in range(Nplot):
         pkl = pickle.load(open('../data/streams/halo.{:d}_stream.{:.2f}.{:04d}.pkl'.format(hid, fstar, to_plot[i]), 'rb'))
         cg = pkl['cg']
@@ -267,7 +320,7 @@ def rgal_hist(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     plt.ylabel('Number')
     
     plt.tight_layout()
-    plt.savefig('../plots/rgal_total_fstar.{:.2f}.png'.format(fstar))
+    plt.savefig('../plots/rgal_total_halo.{:d}_fstar.{:.2f}.png'.format(hid, fstar))
 
 def rgal_mu(hid=523889, lowmass=True, target='progenitors', level=9):
     """"""
@@ -313,7 +366,7 @@ def rgal_mu(hid=523889, lowmass=True, target='progenitors', level=9):
 def plot_morphology(hid=523889, lowmass=True, target='progenitors', Nplot=100, log=True, fstar=-1):
     """"""
     
-    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}.fits'.format(target, hid, lowmass))
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
     N = len(t)
     ind_all = np.arange(N, dtype=int)
     ind_done = get_done(hid=hid, lowmass=lowmass, target=target)
@@ -502,6 +555,19 @@ def streams_edgeon(hid=523889, lowmass=True, target='progenitors', test=False, r
 # Analysis #
 ############
 
+def nstar_mass(logm, hid=523889, lowmass=True, target='progenitors'):
+    """Print a typical number of stars in a cluster of given mass logm"""
+    
+    fstar = 1
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
+    ind = (t['nstar']>0)
+    t = t[ind]
+    
+    ind = (np.abs(t['logMgc_at_birth']-logm)<0.1)
+    # print(t[ind])
+    
+    print(np.mean(t['nstar'][ind]), np.sum(ind))
+
 def distant_streams(hid=523889, lowmass=True, target='progenitors', dist=15):
     """"""
     
@@ -532,33 +598,84 @@ def failed_streams(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     ind_all = np.arange(N, dtype=int)
     ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
     
-    print(t.colnames)
-    #print(np.sum(~ind_done))
+    # print(t.colnames)
+    # print(np.sum(~ind_done))
+    
+    bins_l = np.linspace(0,1,100)
+    bins_rp = np.linspace(0,3,100)
     
     plt.close()
-    plt.figure()
+    fig, ax = plt.subplots(1,3,figsize=(15,5))
     
-    plt.plot(t['lz'], t['etot'], 'ko')
-    plt.plot(t['lz'][~ind_done], t['etot'][~ind_done], 'ro')
+    plt.sca(ax[0])
+    plt.plot(t['lz'], t['etot'], 'ko', label='All ({:d})'.format(N))
+    plt.plot(t['lz'][~ind_done], t['etot'][~ind_done], 'ro', label='Failed ({:d})'.format(np.sum(~ind_done)))
     
-    #plt.gca().set_xscale('log')
-    #plt.gca().set_yscale('log')
+    plt.legend(fontsize='small')
+    plt.xlabel('$L_z$ [kpc$^2$ Myr$^{-1}$]')
+    plt.ylabel('$E_{tot}$ [kpc$^2$ Myr$^{-2}$]')
+    
+    plt.sca(ax[1])
+    plt.hist(np.abs(t['lz']), bins=bins_l, histtype='step', color='k', lw=2, alpha=0.8, label='$r_{{all,max}}$ = {:.2f} kpc$^2$Myr$^{{-1}}$'.format(np.max(np.abs(t['lz']))))
+    plt.hist(np.abs(t['lz'][~ind_done]), bins=bins_l, histtype='step', color='r', lw=2, alpha=0.8, label='$r_{{failed,max}}$ = {:.2f} kpc$^2$Myr$^{{-1}}$'.format(np.max(np.abs(t['lz'][~ind_done]))))
+    
+    plt.legend(fontsize='small')
+    plt.xlabel('|$L_z$| [kpc$^2$ Myr$^{-1}$]')
+    plt.ylabel('Number')
+    
+    plt.sca(ax[2])
+    plt.hist(np.abs(t['rperi']), bins=bins_rp, histtype='step', color='k', lw=2, alpha=0.8, label='$r_{{all,max}}$ = {:.1f} kpc'.format(np.max(t['rperi'])))
+    plt.hist(np.abs(t['rperi'][~ind_done]), bins=bins_rp, histtype='step', color='r', lw=2, alpha=0.8, label='$r_{{failed,max}}$ = {:.1f} kpc'.format(np.max(t['rperi'][~ind_done])))
+    
+    plt.legend(fontsize='small')
+    plt.xlabel('$r_{peri}$ [kpc]')
+    plt.ylabel('Number')
     
     plt.tight_layout()
+    plt.savefig('../plots/failed_diagnostics_halo.{:d}_fstar.{:.2f}.png'.format(hid, fstar))
 
 def done(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     """"""
     t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
     N = len(t)
     ind_all = np.arange(N, dtype=int)
-    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=-1)
-    ind_stream = get_streams(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
+    ind_stream = get_streams(hid=hid, lowmass=lowmass, target=target, fstar=-1)
     
     istream = ind_all[ind_stream]
     idone = ind_all[ind_done]
     
     imissing = np.array([0 if x in idone else 1 for x in istream], dtype=bool)
     print('Missing:', istream[imissing])
+    print(np.sum(imissing))
+    
+    np.save('../data/to_run_halo.{:d}_{:s}.{:.2f}.npy'.format(hid, target, fstar), ind_all[istream[imissing]])
+    
     #print(istream)
     #print(imissing)
+
+def tar_full(hid=523889, lowmass=True, target='progenitors'):
+    """Create a tarball of full-run morphological streams"""
+    fstar = -1
+    t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
+    N = len(t)
+    ind_all = np.arange(N, dtype=int)
+    ind_done = get_done(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
+    ind_stream = get_streams(hid=hid, lowmass=lowmass, target=target, fstar=fstar)
+    
+    to_store = ind_all[ind_done & ind_stream]
+    Nstore = np.size(to_store)
+    
+    fnames = ['../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, x) for x in to_store if os.path.isfile('../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, x))]
+    
+    print(fnames, len(fnames), Nstore)
+    
+    # tarball_name = '../data/streams/full_streams_halo.{:d}.tar.gz'.format(hid)
+    # 
+    # # Create a tarball and open it for writing with gzip compression
+    # with tarfile.open(tarball_name, 'w:gz') as tar:
+    #     for file in file_paths:
+    #         # Add each file to the tarball
+    #         tar.add(file, arcname=file)
+
 
