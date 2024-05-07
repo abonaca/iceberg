@@ -875,12 +875,13 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowma
         to_run = np.arange(i0, N, 1, dtype=int)
     
     if remaining:
-        to_run = np.load('../data/to_run_{:s}.npy'.format(target))
+        # to_run = np.load('../data/to_run_{:s}.npy'.format(target))
+        to_run = np.load('../data/to_run_halo.{:d}_{:s}.{:.2f}.npy'.format(hid, target, fstar))
     
         if test:
             to_run = [to_run[i0],]
     
-    print(np.size(to_run))
+    if verbose: print('number of streams to run: {:d}'.format(np.size(to_run)))
     #to_run = to_run[::-1]
     
     if test:
@@ -904,6 +905,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowma
             # read isochrones
             age = np.around(t['t_form'][i], decimals=1)
             feh = np.around(t['FeH'][i], decimals=1)
+            feh = min(feh, 0.5)
             iso_lsst = read_isochrone(age=age*u.Gyr, feh=feh, ret=True, facility='lsst')
             
             # total mass of stream stars
@@ -948,7 +950,6 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowma
                     masses = masses[:-1]
                 
                 nstar = np.size(masses)
-
                 if f<0:
                     Nmax = min(Nmax, nstar//2)
                     ntail = min(Nmax, n_steps+1)
@@ -1069,9 +1070,9 @@ def get_remaining(hid=523889, lowmass=True, halo=True, target='progenitors', fst
         ind_remaining[i] = 0
     
     print(np.sum(ind_remaining), len(to_run)-len(fout))
-    print(ind_all[ind_remaining].tolist())
+    # print(ind_all[ind_remaining].tolist())
 
-    np.save('../data/to_run_{:s}.npy'.format(target), ind_all[ind_remaining])
+    np.save('../data/to_run_halo.{:d}_{:s}.{:.2f}.npy'.format(hid, target, fstar), ind_all[ind_remaining])
     
     
 
@@ -1194,8 +1195,11 @@ def needed_isochrones(hid=0, target='disrupt'):
     """Print ages and metallicities needed"""
     
     t = Table.read('../data/mw_like_6.0_0.4_2.5_linear_{:s}.txt'.format(target), format='ascii.commented_header', delimiter=' ')
-    hid = np.unique(t['haloID'])[hid]
-    ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
+    if hid<0:
+        ind = ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
+    else:
+        hid = np.unique(t['haloID'])[hid]
+        ind = (t['haloID'] == hid) & ((t['t_accrete']==-1) | (t['t_disrupt']<t['t_accrete']))
     t = t[ind]
     
     age = np.around(t['t_form'], decimals=1)
