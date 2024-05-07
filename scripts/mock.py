@@ -1036,7 +1036,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowma
                     plt.savefig('../plots/streams/halo.{:d}_{:s}.{:04d}.png'.format(hid, label, i))
         except Exception as error:
             print('An exception occurred at stream {:d}: '.format(i), error)
-            fout_failed = open('failed_ids', 'a')
+            fout_failed = open('failed_ids_{:d}'.format(hid), 'a')
             fout_failed.write('{:d}\n'.format(i))
             fout_failed.close()
 
