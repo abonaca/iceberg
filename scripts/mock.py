@@ -874,19 +874,18 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowma
     else:
         to_run = np.arange(i0, N, 1, dtype=int)
     
+    if test:
+        #to_run = [to_run[0],]
+        to_run = [ind_all[i0],]
+    
     if remaining:
-        # to_run = np.load('../data/to_run_{:s}.npy'.format(target))
-        to_run = np.load('../data/to_run_halo.{:d}_{:s}.{:.2f}.npy'.format(hid, target, fstar))
+        to_run = np.load('../data/to_run_halo.{:d}_{:s}.{:.2f}.npy'.format(hid, target, f))
     
         if test:
             to_run = [to_run[i0],]
     
     if verbose: print('number of streams to run: {:d}'.format(np.size(to_run)))
     #to_run = to_run[::-1]
-    
-    if test:
-        #to_run = [to_run[0],]
-        to_run = [ind_all[i0],]
     
     for i in to_run[istart::nskip]:
         try:
