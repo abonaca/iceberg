@@ -1096,7 +1096,7 @@ def nstar():
     print(int_n/int_m*10**4)
 
 
-def sample_kroupa(logm, seed=13, graph=False, ret=True):
+def sample_kroupa(logm, seed=13, graph=False, ret=True, verbose=False):
     """Sample the Kroupa IMF to get masses of stars in a cluster with a total mass of 10**logm
     Following: https://mathworld.wolfram.com/RandomNumber.html"""
     
@@ -1133,6 +1133,9 @@ def sample_kroupa(logm, seed=13, graph=False, ret=True):
     masses_2 = ((1-beta)/C2*y2 + m2**(1-beta))**(1/(1-beta))
     
     masses = np.concatenate([masses_1, masses_2])
+    
+    if verbose:
+        print(np.size(masses))
     
     if graph:
         plt.close()
