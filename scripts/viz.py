@@ -558,13 +558,13 @@ def streams_edgeon(hid=523889, lowmass=True, target='progenitors', test=False, r
 def nstar_mass(logm, hid=523889, lowmass=True, target='progenitors'):
     """Print a typical number of stars in a cluster of given mass logm"""
     
-    fstar = 1
+    fstar = -1
     t = Table.read('../data/output_stream_{:s}_halo.{:d}_lowmass.{:d}_fstar.{:.2f}.fits'.format(target, hid, lowmass, fstar))
+
     ind = (t['nstar']>0)
     t = t[ind]
     
     ind = (np.abs(t['logMgc_at_birth']-logm)<0.1)
-    # print(t[ind])
     
     print(np.mean(t['nstar'][ind]), np.sum(ind))
 
@@ -650,6 +650,8 @@ def done(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     print(np.sum(imissing))
     
     np.save('../data/to_run_halo.{:d}_{:s}.{:.2f}.npy'.format(hid, target, fstar), ind_all[istream[imissing]])
+    
+    print(np.size(ind_all[istream[imissing]]))
     
     #print(istream)
     #print(imissing)

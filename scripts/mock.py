@@ -880,6 +880,7 @@ def mock_stream(hid=523889, test=True, graph=True, i0=0, f=0.3, Nmax=1000, lowma
     
     if remaining:
         to_run = np.load('../data/to_run_halo.{:d}_{:s}.{:.2f}.npy'.format(hid, target, f))
+        print(len(to_run))
     
         if test:
             to_run = [to_run[i0],]
