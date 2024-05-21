@@ -651,7 +651,7 @@ def done(hid=523889, lowmass=True, target='progenitors', fstar=-1):
     
     np.save('../data/to_run_halo.{:d}_{:s}.{:.2f}.npy'.format(hid, target, fstar), ind_all[istream[imissing]])
     
-    print(np.size(ind_all[istream[imissing]]))
+    print(np.size(ind_all[istream[imissing]]), np.size(istream))
     
     #print(istream)
     #print(imissing)
@@ -668,16 +668,16 @@ def tar_full(hid=523889, lowmass=True, target='progenitors'):
     to_store = ind_all[ind_done & ind_stream]
     Nstore = np.size(to_store)
     
-    fnames = ['../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, x) for x in to_store if os.path.isfile('../data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, x))]
+    fnames = ['/home/ana/projects/iceberg/data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, x) for x in to_store if os.path.isfile('/home/ana/projects/iceberg/data/streams/halo.{:d}_stream.1.00.{:04d}.pkl'.format(hid, x))]
     
     print(fnames, len(fnames), Nstore)
     
-    # tarball_name = '../data/streams/full_streams_halo.{:d}.tar.gz'.format(hid)
-    # 
-    # # Create a tarball and open it for writing with gzip compression
-    # with tarfile.open(tarball_name, 'w:gz') as tar:
-    #     for file in file_paths:
-    #         # Add each file to the tarball
-    #         tar.add(file, arcname=file)
+    tarball_name = '../data/streams/full_streams_halo.{:d}.tar.gz'.format(hid)
+    
+    # Create a tarball and open it for writing with gzip compression
+    with tarfile.open(tarball_name, 'w:gz') as tar:
+        for file in fnames:
+            # Add each file to the tarball
+            tar.add(file, arcname=file)
 
 
